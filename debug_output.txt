@@ -1,0 +1,94 @@
+============================================================
+DIAGNOSTIC v2: First Post DOM Analysis
+============================================================
+
+--- ALL <a> TAGS (with visual check) ---
+
+  [0] size=40x40 top=476
+      href: https://www.facebook.com/LotteriaMyanmar?__cft__[0]=AZarRxQsgOdUFZc4hmNw-Jq9mLDiEVua0YlzjOO3AmWvuJDC
+      aria-label: Lotteria Myanmar
+      innerText: ''
+      textContent: ''
+      child <svg> aria-label='Lotteria Myanmar' aria-hidden='' text=''
+
+  [1] size=121x20 top=475
+      href: https://www.facebook.com/LotteriaMyanmar?__cft__[0]=AZarRxQsgOdUFZc4hmNw-Jq9mLDiEVua0YlzjOO3AmWvuJDC
+      aria-label: 
+      innerText: 'Lotteria Myanmar'
+      textContent: 'Lotteria Myanmar'
+
+  [2] size=22x18 top=496
+      href: ?__cft__[0]=AZarRxQsgOdUFZc4hmNw-Jq9mLDiEVua0YlzjOO3AmWvuJDCLLqeow7ZrQb2LS4cd1ZNC3Ajl3DA9HSizMzunKS5
+      aria-label: 
+      innerText: 'r s S d o e t o p n 8 f u t t m h h 2 t 8 0 2 c 1 l f a m 3 '
+      textContent: 'rsSdoetopn8futtmhh2t802c1lfam339520ii92m3hg6f5f815ulcl9g22mu'
+
+  [3] size=680x575 top=556
+      href: https://www.facebook.com/photo/?fbid=1345861261021068&set=a.507133601560509&__cft__[0]=AZarRxQsgOdUF
+      aria-label: 
+      innerText: ''
+      textContent: ''
+
+  [4] size=0x0 top=0
+      href: ?__cft__[0]=AZarRxQsgOdUFZc4hmNw-Jq9mLDiEVua0YlzjOO3AmWvuJDCLLqeow7ZrQb2LS4cd1ZNC3Ajl3DA9HSizMzunKS5
+      aria-label: 
+      innerText: 'OzT6REZ.comAungပုံမြင်တာနဲ့ တန်းသိတဲ့သူကသိတယ်!  ဗိုက်ဆာနေရင်'
+      textContent: 'OzT6REZ.comAungပုံမြင်တာနဲ့ တန်းသိတဲ့သူကသိတယ်!  ဗိုက်ဆာနေရင်'
+
+  [5] size=0x0 top=0
+      href: ?__cft__[0]=AZarRxQsgOdUFZc4hmNw-Jq9mLDiEVua0YlzjOO3AmWvuJDCLLqeow7ZrQb2LS4cd1ZNC3Ajl3DA9HSizMzunKS5
+      aria-label: 
+      innerText: 'rsSdoetopn8futtmor2t802c1lf\xa0mM39L20iienm3rgefaf815ulcl9g22mu'
+      textContent: 'rsSdoetopn8futtmor2t802c1lf\xa0mM39L20iienm3rgefaf815ulcl9g22mu'
+
+--- PLAYWRIGHT VISIBLE TEXT FOR EACH <a> ---
+  [0] visible='' aria='Lotteria Myanmar'
+  [1] visible='Lotteria Myanmar' aria=''
+  [2] visible='r
+s
+S
+d
+o
+e
+t
+o
+p
+n
+8
+f
+u
+t
+t
+m
+h
+h
+2
+t
+8
+0
+2
+c
+1
+' aria=''
+  [3] visible='' aria=''
+  [4] visible='OzT6REZ.comAungပုံမြင်တာနဲ့ တန်းသိတဲ့သူကသိတယ်!
+
+ဗိ' aria=''
+  [5] visible='rsSdoetopn8futtmor2t802c1lf mM39L20iienm3rgefaf815' aria=''
+
+--- SPANS WITH aria-hidden (FB anti-scrape trick) ---
+  [0] text='·' parent=<SPAN> parentAria=''
+  [1] text='11K' parent=<DIV> parentAria=''
+
+--- HOVER TOOLTIP TEST ---
+  Link [0] no tooltip visible
+  Link [1] no tooltip visible
+  Link [2] tooltip: 'Tuesday 14 July 2026 at 21:10'
+  Link [3] no tooltip visible
+  Link [4] error: Locator.hover: Timeout 2000ms exceeded.
+Call log:
+
+
+--- 'VIEW MORE' SEARCH ---
+  Dialog opened after Comment click: True
+  No 'view more comments' text nodes found on page
