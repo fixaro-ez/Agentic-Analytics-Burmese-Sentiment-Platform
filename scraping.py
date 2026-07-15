@@ -131,6 +131,26 @@ def parse_relative_time(raw_time_str: str, scrape_time: datetime = None) -> str:
     return scrape_time.strftime('%Y-%m-%d %H:%M:%S')
 
 
+def parse_count(raw):
+    """
+    Facebook count strings (e.g. '1.2K', '662', '3.5M', '15') ကို integer ပြောင်းပေးသည်။
+    """
+    if isinstance(raw, int):
+        return raw
+    if not raw:
+        return 0
+    s = str(raw).strip().lower().replace(',', '')
+    try:
+        if s.endswith('k'):
+            return int(float(s[:-1]) * 1000)
+        elif s.endswith('m'):
+            return int(float(s[:-1]) * 1000000)
+        else:
+            return int(float(s))
+    except (ValueError, TypeError):
+        return 0
+
+
 # ==========================================
 # အပိုင်း (၁) - In-Memory Data Structure & Storage
 # ==========================================
@@ -375,12 +395,49 @@ def scrape_facebook_page_feed(page, page_url, entity_name, max_posts, output_fil
             except Exception as e:
                 print(f"        [DEBUG] Timestamp error: {e}")
 
+            # ── Post Engagement Metrics (Likes, Shares, Comments count) ──
+            total_reactions = 0
+            total_shares = 0
+            total_comments = 0
+            try:
+                metrics = post.evaluate("""(node) => {
+                    const result = {reactions: 0, shares: 0, comments: 0};
+                    // Find all text spans in the post's action bar area
+                    const allSpans = Array.from(node.querySelectorAll('span'));
+                    for (const span of allSpans) {
+                        const t = span.textContent.trim().toLowerCase();
+                        // "662" or "1.2K" near reaction toolbar (aria-label often has count)
+                        // "16 comments" or "265 shares"
+                        const commMatch = t.match(/^(\\d[\\d,.]*k?)\\s*(comments?|မှတ်ချက်)/);
+                        const shareMatch = t.match(/^(\\d[\\d,.]*k?)\\s*(shares?|ဝေမျှမှု)/);
+                        if (commMatch) result.comments = commMatch[1];
+                        if (shareMatch) result.shares = shareMatch[1];
+                    }
+                    // Reaction count: look for aria-label on the reaction toolbar button
+                    const reactionBtns = Array.from(node.querySelectorAll('[aria-label]'));
+                    for (const btn of reactionBtns) {
+                        const label = btn.getAttribute('aria-label') || '';
+                        // e.g. "662 people reacted" or "662"
+                        const rMatch = label.match(/(\\d[\\d,.]*k?)\\s*(people|others|you and|total|reactions?|person)/i);
+                        if (rMatch) { result.reactions = rMatch[1]; break; }
+                    }
+                    return result;
+                }""")
+                total_reactions = parse_count(metrics.get('reactions', 0))
+                total_shares = parse_count(metrics.get('shares', 0))
+                total_comments = parse_count(metrics.get('comments', 0))
+            except:
+                pass
+
             content_obj = {
                 "source_type": "Social",
                 "entity_name": entity_name,
                 "source_content_id": fb_post_id,
                 "title_or_post": post_text,
                 "post_timestamp": post_timestamp,
+                "total_reactions": total_reactions,
+                "total_shares": total_shares,
+                "total_comments": total_comments,
                 "feedbacks": []
             }
 
@@ -570,11 +627,41 @@ def scrape_facebook_page_feed(page, page_url, entity_name, max_posts, output_fil
                             continue
                         seen_ids.add(fb_comm_id)
 
+                        # Extract comment likes/reactions count
+                        comment_likes = 0
+                        try:
+                            # Facebook shows comment reactions as a button with aria-label
+                            # e.g. "5" or "1" near the comment, or in a small reaction badge
+                            comment_likes = article.evaluate("""(node) => {
+                                // Look for reaction count near comment
+                                const btns = Array.from(node.querySelectorAll('[aria-label]'));
+                                for (const btn of btns) {
+                                    const label = btn.getAttribute('aria-label') || '';
+                                    // e.g. "5 reactions" "1 like" "3 people reacted"
+                                    const m = label.match(/(\\d+)\\s*(reaction|like|people|person|others)/i);
+                                    if (m) return parseInt(m[1]);
+                                }
+                                // Also check for small count spans (e.g. just "5" next to reaction icon)
+                                const spans = Array.from(node.querySelectorAll('span'));
+                                for (const s of spans) {
+                                    const t = s.textContent.trim();
+                                    if (/^\\d+$/.test(t) && parseInt(t) < 10000) {
+                                        // Check if this span is near a reaction button/icon
+                                        const parent = s.closest('[role="button"]');
+                                        if (parent) return parseInt(t);
+                                    }
+                                }
+                                return 0;
+                            }""")
+                        except:
+                            pass
+
                         content_obj["feedbacks"].append({
                             "id": fb_comm_id,
                             "author": author,
                             "text": comment_text,
-                            "timestamp": comment_timestamp   # ← Absolute datetime
+                            "timestamp": comment_timestamp,
+                            "likes": comment_likes
                         })
                         
                 except Exception as e:
