@@ -197,14 +197,31 @@ class FoodpandaUnitTests(unittest.TestCase):
     def test_pagination_safety_limit(self):
         page = MagicMock()
         page.locator.return_value = FakeLocator()
+        scroll_result = {'scrolled': True, 'atEnd': False, 'method': 'container'}
         with unittest.mock.patch.object(scraping, 'mounted_foodpanda_reviews', return_value=[]), \
              unittest.mock.patch.object(scraping, 'is_foodpanda_modal_open', return_value=True), \
              unittest.mock.patch.object(scraping, 'foodpanda_review_modal_locator',
                                         lambda page: page.locator(scraping.FOODPANDA_REVIEW_MODAL).first), \
              unittest.mock.patch.object(scraping, 'foodpanda_dom_signature', return_value='x'), \
-             unittest.mock.patch.object(scraping, '_foodpanda_scroll_reviews_modal', return_value=True):
+             unittest.mock.patch.object(scraping, '_foodpanda_review_card_count', return_value=10), \
+             unittest.mock.patch.object(scraping, '_foodpanda_scroll_reviews_modal', return_value=scroll_result), \
+             unittest.mock.patch.object(scraping, '_foodpanda_wait_for_more_reviews', return_value=False):
             result = scraping.exhaust_foodpanda_reviews(page, {'feedbacks':[]}, set(), 's', {'records':[]}, {}, max_steps=1)
         self.assertEqual(result['termination_reason'], 'safety_limit')
+
+    def test_pagination_stops_at_scroll_end(self):
+        page = MagicMock()
+        page.locator.return_value = FakeLocator()
+        end_result = {'scrolled': False, 'atEnd': True, 'method': 'container'}
+        with unittest.mock.patch.object(scraping, 'mounted_foodpanda_reviews', return_value=[]), \
+             unittest.mock.patch.object(scraping, 'is_foodpanda_modal_open', return_value=True), \
+             unittest.mock.patch.object(scraping, 'foodpanda_review_modal_locator',
+                                        lambda page: page.locator(scraping.FOODPANDA_REVIEW_MODAL).first), \
+             unittest.mock.patch.object(scraping, 'foodpanda_dom_signature', return_value='x'), \
+             unittest.mock.patch.object(scraping, '_foodpanda_review_card_count', return_value=5), \
+             unittest.mock.patch.object(scraping, '_foodpanda_scroll_reviews_modal', return_value=end_result):
+            result = scraping.exhaust_foodpanda_reviews(page, {'feedbacks':[]}, set(), 's', {'records':[]}, {}, max_steps=5)
+        self.assertEqual(result['termination_reason'], 'end_of_list')
 
     def test_ingest_overall_rating_on_content(self):
         db = {'contents': MagicMock(), 'feedbacks': MagicMock()}

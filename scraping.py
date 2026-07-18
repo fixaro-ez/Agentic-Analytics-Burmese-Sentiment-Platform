@@ -1593,8 +1593,9 @@ def scrape_facebook_page_feed(page, page_url, entity_name, max_posts, db, output
 # ==========================================
 FOODPANDA_NAVIGATION_TIMEOUT_MS = 60000
 FOODPANDA_ACTION_TIMEOUT_MS = 4000
-FOODPANDA_MAX_STEPS = 60
-FOODPANDA_STALE_LIMIT = 3
+FOODPANDA_MAX_STEPS = 120
+FOODPANDA_STALE_LIMIT = 5
+FOODPANDA_SCROLL_WAIT_MS = 2500
 FOODPANDA_RESPONSE_HINTS = ('review', 'rating', 'graphql')
 FOODPANDA_REVIEW_LABEL_RE = re.compile(
     r'reviews?|ratings?|customer feedback|သုံးသပ်ချက်|အဆင့်သတ်မှတ်', re.IGNORECASE)
@@ -2010,18 +2011,106 @@ def harvest_foodpanda_records(content_obj, records, seen_ids, shop_id, source='d
     return added
 
 
+def _foodpanda_review_card_count(page):
+    try:
+        if not is_foodpanda_modal_open(page):
+            return 0
+        return foodpanda_review_modal_locator(page).locator(FOODPANDA_REVIEW_CARDS).count()
+    except Exception:
+        return 0
+
+
 def _foodpanda_scroll_reviews_modal(page):
-    return page.evaluate("""() => {
+    """Scroll the reviews list inside the modal; tries several container strategies."""
+    result = page.evaluate("""() => {
+        const cardSelector = '[data-testid="info-reviews-modal-card-container"], [data-testid="info-reviews-modal-review-card"]';
         const modal = document.querySelector('[data-testid="info-reviews-modal-content"]')
             || document.getElementById('info-reviews-content');
-        if (!modal) return false;
-        const scrollable = modal.closest('[class*="modal"]')
-            || modal.querySelector('[class*="scroll"]')
-            || modal;
-        const old = scrollable.scrollTop;
-        scrollable.scrollBy(0, Math.max(600, scrollable.clientHeight * 0.8));
-        return scrollable.scrollTop !== old;
-    }""")
+        if (!modal) return { scrolled: false, atEnd: true, method: 'no_modal' };
+
+        const cards = [...modal.querySelectorAll(cardSelector)];
+        const isScrollable = (el) => {
+            if (!el) return false;
+            const style = window.getComputedStyle(el);
+            const oy = style.overflowY;
+            return (oy === 'auto' || oy === 'scroll' || oy === 'overlay')
+                && el.scrollHeight > el.clientHeight + 2;
+        };
+        const findScrollable = (start) => {
+            let node = start;
+            while (node) {
+                if (isScrollable(node)) return node;
+                node = node.parentElement;
+            }
+            return null;
+        };
+
+        const candidates = [];
+        if (cards.length) candidates.push(findScrollable(cards[cards.length - 1]));
+        for (const sel of ['.info-reviews-modal-body', '.bds-c-modal__body', '.bds-c-modal__content-window']) {
+            const el = modal.querySelector(sel) || document.querySelector(sel);
+            if (el && isScrollable(el)) candidates.push(el);
+        }
+        candidates.push(findScrollable(modal));
+
+        const scrollable = candidates.find(Boolean) || null;
+        let scrolled = false;
+        let atEnd = !scrollable;
+
+        if (scrollable) {
+            const before = scrollable.scrollTop;
+            const max = Math.max(0, scrollable.scrollHeight - scrollable.clientHeight);
+            const delta = Math.max(500, scrollable.clientHeight * 0.9);
+            scrollable.scrollTop = Math.min(scrollable.scrollTop + delta, max);
+            scrolled = scrollable.scrollTop > before;
+            atEnd = scrollable.scrollTop >= max - 2;
+        }
+
+        if (cards.length && !atEnd) {
+            const beforeTop = scrollable ? scrollable.scrollTop : 0;
+            cards[cards.length - 1].scrollIntoView({ block: 'end', inline: 'nearest' });
+            if (scrollable) {
+                const max = Math.max(0, scrollable.scrollHeight - scrollable.clientHeight);
+                scrolled = scrolled || scrollable.scrollTop > beforeTop;
+                atEnd = scrollable.scrollTop >= max - 2;
+            } else {
+                scrolled = true;
+            }
+        }
+
+        return { scrolled, atEnd, method: scrollable ? 'container' : 'scroll_into_view' };
+    }""") or {'scrolled': False, 'atEnd': True, 'method': 'evaluate_failed'}
+
+    if not result.get('scrolled'):
+        try:
+            modal = foodpanda_review_modal_locator(page)
+            cards = modal.locator(FOODPANDA_REVIEW_CARDS)
+            if cards.count() > 0:
+                cards.last.scroll_into_view_if_needed(timeout=FOODPANDA_ACTION_TIMEOUT_MS)
+                return {'scrolled': True, 'atEnd': result.get('atEnd', False), 'method': 'playwright'}
+        except Exception:
+            pass
+    return result
+
+
+def _foodpanda_wait_for_more_reviews(page, before_card_count, before_signature, timeout_ms=None):
+    timeout_ms = timeout_ms or FOODPANDA_SCROLL_WAIT_MS
+    try:
+        page.wait_for_function(
+            """([selector, oldCount, oldSig]) => {
+                const modal = document.querySelector('[data-testid="info-reviews-modal-content"]')
+                    || document.getElementById('info-reviews-content');
+                const root = modal || document;
+                const nodes = [...root.querySelectorAll(selector)];
+                const sig = nodes.map(n => n.innerText || '').join('\\x1e');
+                return nodes.length > oldCount || (sig && sig !== oldSig);
+            }""",
+            arg=[FOODPANDA_REVIEW_CARDS, before_card_count, before_signature],
+            timeout=timeout_ms,
+        )
+        return True
+    except Exception:
+        return False
 
 
 def exhaust_foodpanda_reviews(page, content_obj, seen_ids, shop_id, response_state,
@@ -2029,8 +2118,10 @@ def exhaust_foodpanda_reviews(page, content_obj, seen_ids, shop_id, response_sta
     stale = 0
     api_cursor = 0
     modal_open = is_foodpanda_modal_open(page)
+    last_action = 'none'
     for step in range(max_steps):
         before_count = len(seen_ids)
+        before_card_count = _foodpanda_review_card_count(page)
         modal_open = is_foodpanda_modal_open(page)
         harvest_foodpanda_records(
             content_obj, mounted_foodpanda_reviews(page, dom_stats), seen_ids, shop_id,
@@ -2043,6 +2134,7 @@ def exhaust_foodpanda_reviews(page, content_obj, seen_ids, shop_id, response_sta
         before_signature = foodpanda_dom_signature(page)
         before_api = len(response_state.get('records', []))
         action = 'none'
+        scroll_meta = {'scrolled': False, 'atEnd': True, 'method': 'none'}
         modal = foodpanda_review_modal_locator(page) if modal_open else None
         controls = (modal or page).locator("button, [role='button'], a").filter(
             has_text=FOODPANDA_MORE_LABEL_RE)
@@ -2055,25 +2147,28 @@ def exhaust_foodpanda_reviews(page, content_obj, seen_ids, shop_id, response_sta
                     break
             except Exception:
                 continue
-        if action == 'none':
+        if action == 'none' and modal_open:
             try:
-                if modal_open:
-                    scrolled = _foodpanda_scroll_reviews_modal(page)
-                else:
-                    scrolled = False
-                action = 'scroll' if scrolled else 'none'
+                scroll_meta = _foodpanda_scroll_reviews_modal(page)
+                action = 'scroll' if scroll_meta.get('scrolled') else 'none'
             except Exception:
                 action = 'none'
-        if action == 'none':
-            return {'steps': step + 1, 'termination_reason': 'end_of_list', 'last_action': action}
-        try:
-            page.wait_for_function(
-                "([selector, old]) => { const modal=document.querySelector('[data-testid=\"info-reviews-modal-content\"], #info-reviews-content'); "
-                "const root=modal||document; const nodes=[...root.querySelectorAll(selector)]; "
-                "return nodes.map(n => n.innerText||'').join('\\x1e') !== old; }",
-                arg=[FOODPANDA_REVIEW_CARDS, before_signature], timeout=6000)
-        except Exception:
-            pass
+        if action != 'none':
+            _foodpanda_wait_for_more_reviews(page, before_card_count, before_signature)
+            try:
+                page.wait_for_timeout(400)
+            except Exception:
+                pass
+        elif scroll_meta.get('atEnd'):
+            return {
+                'steps': step + 1, 'termination_reason': 'end_of_list',
+                'last_action': last_action, 'scroll_method': scroll_meta.get('method'),
+            }
+        else:
+            return {
+                'steps': step + 1, 'termination_reason': 'scroll_failed',
+                'last_action': last_action, 'scroll_method': scroll_meta.get('method'),
+            }
         modal_open = is_foodpanda_modal_open(page)
         harvest_foodpanda_records(
             content_obj, mounted_foodpanda_reviews(page, dom_stats), seen_ids, shop_id,
@@ -2083,11 +2178,20 @@ def exhaust_foodpanda_reviews(page, content_obj, seen_ids, shop_id, response_sta
             api_cursor += len(api_records)
             harvest_foodpanda_records(
                 content_obj, api_records, seen_ids, shop_id, source='api', stats=dom_stats)
-        progress = len(seen_ids) > before_count or len(response_state.get('records', [])) > before_api
+        after_card_count = _foodpanda_review_card_count(page)
+        progress = (
+            len(seen_ids) > before_count
+            or len(response_state.get('records', [])) > before_api
+            or after_card_count > before_card_count
+        )
         stale = 0 if progress else stale + 1
+        last_action = action
         if stale >= FOODPANDA_STALE_LIMIT:
-            return {'steps': step + 1, 'termination_reason': 'no_unique_growth', 'last_action': action}
-    return {'steps': max_steps, 'termination_reason': 'safety_limit', 'last_action': action}
+            return {
+                'steps': step + 1, 'termination_reason': 'no_unique_growth',
+                'last_action': action, 'scroll_method': scroll_meta.get('method'),
+            }
+    return {'steps': max_steps, 'termination_reason': 'safety_limit', 'last_action': last_action}
 
 
 def derive_foodpanda_entity_name(entity_name, page, shop_url):
