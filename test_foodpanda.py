@@ -55,6 +55,7 @@ class FakeLocator:
     def evaluate(self, _script): return False
     def is_visible(self): return self.visible
     def wait_for(self, **_kwargs): return None
+    def inner_text(self): return self.texts[0] if self.texts else ''
 
 
 class DomPage:
@@ -62,7 +63,7 @@ class DomPage:
         if cards is None:
             cards = [FakeCard({
                 'id': 'r1', 'text': ' Great meal ', 'author': 'Ada',
-                'date': '3 weeks ago', 'rating': '5',
+                'date': '3 weeks ago',
             })]
         self.cards = cards
         self.modal_open = modal_open
@@ -113,7 +114,7 @@ class FoodpandaUnitTests(unittest.TestCase):
             records = scraping.mounted_foodpanda_reviews(DomPage(), stats)
         self.assertEqual(records[0]['text'], 'Great meal')
         self.assertEqual(records[0]['author'], 'Ada')
-        self.assertEqual(records[0]['rating'], 5)
+        self.assertIsNone(records[0].get('rating'))
         self.assertEqual(stats['dom_records'], 1)
         self.assertEqual(stats['legacy_nodes'], 0)
 
@@ -140,6 +141,27 @@ class FoodpandaUnitTests(unittest.TestCase):
             records = scraping.mounted_foodpanda_reviews(page, stats)
         self.assertEqual(records, [])
         self.assertEqual(stats['legacy_nodes'], 0)
+
+    def test_overall_rating_extraction(self):
+        page = DomPage()
+        page.locator = lambda selector: (
+            FakeLocator(texts=['4.9'], visible=True)
+            if selector == scraping.FOODPANDA_REVIEW_MODAL
+            else FakeLocator(items=[FakeLocator(items=page.cards)], visible=page.modal_open)
+        )
+        with unittest.mock.patch.object(scraping, 'is_foodpanda_modal_open', return_value=True), \
+             unittest.mock.patch.object(scraping, 'foodpanda_review_modal_locator',
+                                        lambda p: FakeLocator(texts=['4.9'], visible=True, items=[
+                                            FakeLocator(texts=['4.9'])
+                                        ])):
+            rating = scraping.extract_foodpanda_overall_rating(page)
+        self.assertEqual(rating, 4.9)
+
+    def test_harvest_omits_per_feedback_rating(self):
+        content = {'feedbacks': []}
+        record = {'text': 'Good food', 'author': 'Kyaw', 'date': '1 week ago'}
+        scraping.harvest_foodpanda_records(content, [record], set(), 'shop')
+        self.assertNotIn('rating', content['feedbacks'][0])
 
     def test_identity_and_duplicate_count(self):
         by_id = {'id':'abc', 'text':'Same', 'author':'Ada', 'date':'3 weeks ago', 'rating':5}
@@ -184,7 +206,7 @@ class FoodpandaUnitTests(unittest.TestCase):
             result = scraping.exhaust_foodpanda_reviews(page, {'feedbacks':[]}, set(), 's', {'records':[]}, {}, max_steps=1)
         self.assertEqual(result['termination_reason'], 'safety_limit')
 
-    def test_ingest_legacy_foodpanda_fields_and_rating(self):
+    def test_ingest_overall_rating_on_content(self):
         db = {'contents': MagicMock(), 'feedbacks': MagicMock()}
         db['contents'].find.return_value = []
         db['contents'].bulk_write.return_value = MagicMock(upserted_count=1, modified_count=0)
@@ -198,15 +220,15 @@ class FoodpandaUnitTests(unittest.TestCase):
             return (query, update, upsert)
         try:
             with open(path, 'w', encoding='utf-8') as handle:
-                json.dump([{'source_content_id':'shop','feedbacks':[{
-                    'source_feedback_id':'fp_rev_1','raw_text':'Good','rating':4}]}], handle)
+                json.dump([{'source_content_id':'shop','overall_rating':4.9,'feedbacks':[{
+                    'source_feedback_id':'fp_rev_1','raw_text':'Good'}]}], handle)
             with unittest.mock.patch.object(ingest, 'UpdateOne', side_effect=capture_update), \
                  unittest.mock.patch('builtins.print'):
                 self.assertEqual(ingest.ingest_json_file(db, path), (1, 1))
+            content_updates = [value for value in captured if value[0].get('_id') == 'shop']
             feedback_updates = [value for value in captured if value[0].get('_id') == 'fp_rev_1']
-            update = feedback_updates[0][1]['$set']
-            self.assertEqual(update['raw_text'], 'Good')
-            self.assertEqual(update['rating'], 4)
+            self.assertEqual(content_updates[0][1]['$set']['overall_rating'], 4.9)
+            self.assertNotIn('rating', feedback_updates[0][1]['$set'])
         finally:
             os.unlink(path)
 

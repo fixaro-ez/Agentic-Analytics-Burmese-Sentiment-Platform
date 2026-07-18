@@ -1607,6 +1607,7 @@ FOODPANDA_REVIEW_CARDS = (
     "[data-testid='info-reviews-modal-card-container'], "
     "[data-testid='info-reviews-modal-review-card']"
 )
+FOODPANDA_OVERALL_RATING = "[data-testid='summary-section-rating-score']"
 FOODPANDA_UI_CHROME_RE = re.compile(
     r'^(?:reviews?|ratings?|top reviews?|newest|highest rating|lowest rating|'
     r'helpful(?:\s+\d+)?|all ratings(?:\s*\([^)]*\))?|customer feedback|'
@@ -1819,6 +1820,18 @@ def dismiss_foodpanda_overlays(page):
     return result
 
 
+def extract_foodpanda_overall_rating(page):
+    """Read the shop's overall rating from the reviews modal summary section."""
+    if not is_foodpanda_modal_open(page):
+        return None
+    try:
+        modal = foodpanda_review_modal_locator(page)
+        score = normalize_foodpanda_text(modal.locator(FOODPANDA_OVERALL_RATING).first.inner_text())
+        return normalize_foodpanda_rating(score)
+    except Exception:
+        return None
+
+
 def foodpanda_dom_signature(page):
     try:
         root = foodpanda_review_modal_locator(page) if is_foodpanda_modal_open(page) else page.locator('body')
@@ -1928,58 +1941,11 @@ def _dom_card_record(card):
             'time'
         ]);
 
-        // ── Star rating ──
-        let rating = '';
-        // Strategy 1: aria-label containing star info
-        for (const el of node.querySelectorAll('[aria-label]')) {
-            const label = el.getAttribute('aria-label') || '';
-            const m = label.match(/(\\d(?:\\.\\d)?)\\s*(?:out of|of|\\/)\\s*\\d|^(\\d)\\s*star/i);
-            if (m) { rating = m[1] || m[2]; break; }
-        }
-        // Strategy 2: Count filled vs empty stars by SVG fill color
-        if (!rating) {
-            const subtitle = node.querySelector(
-                '[data-testid*="card-subtitle"], [class*="card-subtitle"]');
-            const starDiv = subtitle ? subtitle.querySelector('div') : null;
-            if (starDiv) {
-                const svgs = starDiv.querySelectorAll('svg');
-                if (svgs.length >= 2 && svgs.length <= 10) {
-                    const getFill = (svg) => {
-                        const path = svg.querySelector('path');
-                        return (path && path.getAttribute('fill')) ||
-                            svg.getAttribute('fill') || svg.getAttribute('color') || '';
-                    };
-                    const firstFill = getFill(svgs[0]);
-                    const lastFill = getFill(svgs[svgs.length - 1]);
-                    if (firstFill && lastFill) {
-                        if (firstFill !== lastFill) {
-                            let filled = 0;
-                            svgs.forEach(s => { if (getFill(s) === firstFill) filled++; });
-                            rating = String(filled);
-                        } else {
-                            rating = String(svgs.length);
-                        }
-                    }
-                }
-            }
-        }
-        // Strategy 3: data-testid or aria-label on a dedicated rating element
-        if (!rating) {
-            const ratingEl = node.querySelector(
-                '[aria-label*="star" i], [data-testid*="rating"]');
-            if (ratingEl) {
-                const label = ratingEl.getAttribute('aria-label') ||
-                    ratingEl.textContent || '';
-                const m = label.match(/(\\d(?:\\.\\d)?)/i);
-                if (m) rating = m[1];
-            }
-        }
-
         // ── Review ID ──
         const id = node.getAttribute('data-review-id') ||
             node.getAttribute('data-id') || '';
 
-        return { id, text, author, date, rating };
+        return { id, text, author, date };
     }""") or {}
     return normalize_foodpanda_record(data)
 
@@ -2013,8 +1979,7 @@ def foodpanda_review_id(shop_id, record):
     if platform_id:
         safe_id = re.sub(r'[^\w.-]+', '_', platform_id, flags=re.UNICODE)
         return f'fp_rev_{safe_id}'
-    parts = [shop_id, record.get('author', ''), record.get('date', ''),
-             record.get('rating', ''), record.get('text', '')]
+    parts = [shop_id, record.get('author', ''), record.get('date', ''), record.get('text', '')]
     canonical = '\x1f'.join(normalize_foodpanda_text(value) for value in parts)
     return 'fp_rev_' + hashlib.sha256(canonical.encode('utf-8')).hexdigest()
 
@@ -2039,7 +2004,6 @@ def harvest_foodpanda_records(content_obj, records, seen_ids, shop_id, source='d
             'id': feedback_id, 'source_feedback_id': feedback_id,
             'author': record.get('author') or 'Unknown',
             'text': record['text'], 'raw_text': record['text'],
-            'rating': record.get('rating'),
             'timestamp': parse_foodpanda_relative_time(record.get('date', '')),
         })
         added += 1
@@ -2155,6 +2119,7 @@ def scrape_foodpanda_reviews(page, shop_url, entity_name):
             'Platform', display_name, shop_uuid, f'{display_name} Reviews')
         overlay = dismiss_foodpanda_overlays(page)
         surface = open_foodpanda_review_surface(page, response_state, shop_url)
+        content_obj['overall_rating'] = extract_foodpanda_overall_rating(page)
         seen_ids = {fb.get('id') or fb.get('source_feedback_id')
                     for fb in content_obj.get('feedbacks', [])}
         dom_stats = {}
@@ -2168,6 +2133,7 @@ def scrape_foodpanda_reviews(page, shop_url, entity_name):
             'response_errors': response_state['response_errors'],
             'api_objects': len(response_state['records']),
             'rejected_records': dom_stats.get('rejected_records', 0),
+            'overall_rating': content_obj.get('overall_rating'),
             **dom_stats,
             'pagination': pagination, 'reviews_extracted': len(content_obj['feedbacks']),
         }
