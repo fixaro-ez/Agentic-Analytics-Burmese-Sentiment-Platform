@@ -8,8 +8,14 @@ from unittest.mock import MagicMock
 playwright = types.ModuleType('playwright')
 playwright_sync = types.ModuleType('playwright.sync_api')
 playwright_sync.sync_playwright = MagicMock()
+playwright_async = types.ModuleType('playwright.async_api')
+playwright_async.async_playwright = MagicMock()
+playwright_async.Locator = MagicMock
+playwright_async.Page = MagicMock
+playwright_async.TimeoutError = Exception
 sys.modules.setdefault('playwright', playwright)
 sys.modules.setdefault('playwright.sync_api', playwright_sync)
+sys.modules.setdefault('playwright.async_api', playwright_async)
 pymongo = types.ModuleType('pymongo')
 pymongo.MongoClient = MagicMock
 pymongo.UpdateOne = MagicMock
@@ -17,8 +23,9 @@ pymongo.ASCENDING = 1
 pymongo.DESCENDING = -1
 sys.modules.setdefault('pymongo', pymongo)
 
-scraping = importlib.import_module('scraping')
-ingest = importlib.import_module('ingest_to_mongo')
+scraping = importlib.import_module('burmese_absa.scraping')
+foodpanda = importlib.import_module('burmese_absa.scraping.foodpanda')
+ingest = importlib.import_module('burmese_absa.ingest_to_mongo')
 
 
 class FakeResponse:
@@ -108,8 +115,8 @@ class FoodpandaUnitTests(unittest.TestCase):
 
     def test_dom_fallback_extracts_fields(self):
         stats = {}
-        with unittest.mock.patch.object(scraping, 'is_foodpanda_modal_open', return_value=True), \
-             unittest.mock.patch.object(scraping, 'foodpanda_review_modal_locator',
+        with unittest.mock.patch.object(foodpanda, 'is_foodpanda_modal_open', return_value=True), \
+             unittest.mock.patch.object(foodpanda, 'foodpanda_review_modal_locator',
                                         lambda page: page.locator(scraping.FOODPANDA_REVIEW_MODAL).first):
             records = scraping.mounted_foodpanda_reviews(DomPage(), stats)
         self.assertEqual(records[0]['text'], 'Great meal')
@@ -135,8 +142,8 @@ class FoodpandaUnitTests(unittest.TestCase):
     def test_legacy_fallback_not_used(self):
         stats = {}
         page = DomPage(cards=[], modal_open=True)
-        with unittest.mock.patch.object(scraping, 'is_foodpanda_modal_open', return_value=True), \
-             unittest.mock.patch.object(scraping, 'foodpanda_review_modal_locator',
+        with unittest.mock.patch.object(foodpanda, 'is_foodpanda_modal_open', return_value=True), \
+             unittest.mock.patch.object(foodpanda, 'foodpanda_review_modal_locator',
                                         lambda p: p.locator(scraping.FOODPANDA_REVIEW_MODAL).first):
             records = scraping.mounted_foodpanda_reviews(page, stats)
         self.assertEqual(records, [])
@@ -149,8 +156,8 @@ class FoodpandaUnitTests(unittest.TestCase):
             if selector == scraping.FOODPANDA_REVIEW_MODAL
             else FakeLocator(items=[FakeLocator(items=page.cards)], visible=page.modal_open)
         )
-        with unittest.mock.patch.object(scraping, 'is_foodpanda_modal_open', return_value=True), \
-             unittest.mock.patch.object(scraping, 'foodpanda_review_modal_locator',
+        with unittest.mock.patch.object(foodpanda, 'is_foodpanda_modal_open', return_value=True), \
+             unittest.mock.patch.object(foodpanda, 'foodpanda_review_modal_locator',
                                         lambda p: FakeLocator(texts=['4.9'], visible=True, items=[
                                             FakeLocator(texts=['4.9'])
                                         ])):
@@ -185,8 +192,8 @@ class FoodpandaUnitTests(unittest.TestCase):
         page.url = 'https://x/shop/empty'
         page.title.return_value = 'Empty | foodpanda'
         page.locator.return_value = FakeLocator()
-        with unittest.mock.patch.object(scraping, 'is_foodpanda_modal_open', return_value=False), \
-             unittest.mock.patch.object(scraping, 'foodpanda_review_modal_locator',
+        with unittest.mock.patch.object(foodpanda, 'is_foodpanda_modal_open', return_value=False), \
+             unittest.mock.patch.object(foodpanda, 'foodpanda_review_modal_locator',
                                         lambda p: p.locator.return_value):
             result = scraping.scrape_foodpanda_reviews(page, page.url, '')
         self.assertEqual(result['review_diagnostics']['reason'], 'no_review_records_detected')
@@ -198,14 +205,14 @@ class FoodpandaUnitTests(unittest.TestCase):
         page = MagicMock()
         page.locator.return_value = FakeLocator()
         scroll_result = {'scrolled': True, 'atEnd': False, 'method': 'container'}
-        with unittest.mock.patch.object(scraping, 'mounted_foodpanda_reviews', return_value=[]), \
-             unittest.mock.patch.object(scraping, 'is_foodpanda_modal_open', return_value=True), \
-             unittest.mock.patch.object(scraping, 'foodpanda_review_modal_locator',
+        with unittest.mock.patch.object(foodpanda, 'mounted_foodpanda_reviews', return_value=[]), \
+             unittest.mock.patch.object(foodpanda, 'is_foodpanda_modal_open', return_value=True), \
+             unittest.mock.patch.object(foodpanda, 'foodpanda_review_modal_locator',
                                         lambda page: page.locator(scraping.FOODPANDA_REVIEW_MODAL).first), \
-             unittest.mock.patch.object(scraping, 'foodpanda_dom_signature', return_value='x'), \
-             unittest.mock.patch.object(scraping, '_foodpanda_review_card_count', return_value=10), \
-             unittest.mock.patch.object(scraping, '_foodpanda_scroll_reviews_modal', return_value=scroll_result), \
-             unittest.mock.patch.object(scraping, '_foodpanda_wait_for_more_reviews', return_value=False):
+             unittest.mock.patch.object(foodpanda, 'foodpanda_dom_signature', return_value='x'), \
+             unittest.mock.patch.object(foodpanda, '_foodpanda_review_card_count', return_value=10), \
+             unittest.mock.patch.object(foodpanda, '_foodpanda_scroll_reviews_modal', return_value=scroll_result), \
+             unittest.mock.patch.object(foodpanda, '_foodpanda_wait_for_more_reviews', return_value=False):
             result = scraping.exhaust_foodpanda_reviews(page, {'feedbacks':[]}, set(), 's', {'records':[]}, {}, max_steps=1)
         self.assertEqual(result['termination_reason'], 'safety_limit')
 
@@ -213,13 +220,13 @@ class FoodpandaUnitTests(unittest.TestCase):
         page = MagicMock()
         page.locator.return_value = FakeLocator()
         end_result = {'scrolled': False, 'atEnd': True, 'method': 'container'}
-        with unittest.mock.patch.object(scraping, 'mounted_foodpanda_reviews', return_value=[]), \
-             unittest.mock.patch.object(scraping, 'is_foodpanda_modal_open', return_value=True), \
-             unittest.mock.patch.object(scraping, 'foodpanda_review_modal_locator',
+        with unittest.mock.patch.object(foodpanda, 'mounted_foodpanda_reviews', return_value=[]), \
+             unittest.mock.patch.object(foodpanda, 'is_foodpanda_modal_open', return_value=True), \
+             unittest.mock.patch.object(foodpanda, 'foodpanda_review_modal_locator',
                                         lambda page: page.locator(scraping.FOODPANDA_REVIEW_MODAL).first), \
-             unittest.mock.patch.object(scraping, 'foodpanda_dom_signature', return_value='x'), \
-             unittest.mock.patch.object(scraping, '_foodpanda_review_card_count', return_value=5), \
-             unittest.mock.patch.object(scraping, '_foodpanda_scroll_reviews_modal', return_value=end_result):
+             unittest.mock.patch.object(foodpanda, 'foodpanda_dom_signature', return_value='x'), \
+             unittest.mock.patch.object(foodpanda, '_foodpanda_review_card_count', return_value=5), \
+             unittest.mock.patch.object(foodpanda, '_foodpanda_scroll_reviews_modal', return_value=end_result):
             result = scraping.exhaust_foodpanda_reviews(page, {'feedbacks':[]}, set(), 's', {'records':[]}, {}, max_steps=5)
         self.assertEqual(result['termination_reason'], 'end_of_list')
 

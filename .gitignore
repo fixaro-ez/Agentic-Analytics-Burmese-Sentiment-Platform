@@ -1,1 +1,44 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+
+# Secrets / runtime files
 cookies.json
+
+# Debug / runtime JSON outputs
+facebook_data.json
+facebook_run_report.json
+raw_*.json
+debug/
+data/
+
+# IDE / editor
+.vscode/
+.idea/
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Scraped JSON outputs (broader catch)
+*.json.tmp
+
+# ChromeDriver / Selenium artifacts
+chromedriver/
+chromedriver.exe
+
+# Logs
+*.log
+
+# OpenCode / agent config (local only)
+opencode.json
+skills-lock.json
+
+# MongoDB data
+mongo_data/
