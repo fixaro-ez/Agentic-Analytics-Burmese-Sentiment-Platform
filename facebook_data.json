@@ -15,21 +15,21 @@
     "post_timestamp_source": "hover_tooltip",
     "post_timestamp_label": "Sunday 26 July 2026 at 09:00",
     "reactions_breakdown": {
-      "like": 205,
+      "like": 209,
       "love": 28,
       "care": 0,
       "haha": 0,
       "wow": 0,
       "sad": 0,
       "angry": 0,
-      "total": 233
+      "total": 237
     },
     "grouped_reactions": {
-      "passive_engagement": 205,
+      "passive_engagement": 209,
       "positive_affinity": 28,
       "negative_risk": 0,
       "expressive_virality": 0,
-      "positivity_ratio": 0.120172,
+      "positivity_ratio": 0.118143,
       "negativity_ratio": 0.0,
       "haha_ratio": 0.0
     },
@@ -38,14 +38,14 @@
     "reaction_diagnostics": {
       "status": "complete_exact",
       "source": "dialog",
-      "summary_label": "All reactions: 233",
-      "modal_attempts": 1,
+      "summary_label": "All reactions: 237",
+      "modal_attempts": 2,
       "modal_opened": true,
-      "modal_stalled": false,
-      "known_reaction_sum": 233,
-      "displayed_total": 233,
+      "modal_stalled": true,
+      "known_reaction_sum": 237,
+      "displayed_total": 237,
       "termination_reason": "complete",
-      "elapsed_ms": 2820
+      "elapsed_ms": 12519
     },
     "total_shares": 6,
     "total_comments": 9,
@@ -97,7 +97,7 @@
       "known_reaction_sum": 152,
       "displayed_total": 152,
       "termination_reason": "complete",
-      "elapsed_ms": 4011
+      "elapsed_ms": 3839
     },
     "total_shares": 6,
     "total_comments": 24,
@@ -149,114 +149,10 @@
       "known_reaction_sum": 114,
       "displayed_total": 114,
       "termination_reason": "complete",
-      "elapsed_ms": 3345
+      "elapsed_ms": 2868
     },
     "total_shares": 6,
     "total_comments": 30,
     "feed_position": 3
-  },
-  {
-    "_id": "fb_post_9fa8b7786b8519ca1c7ea54107d779e006ec32ba8ce0a02cf4e9f435adfea022",
-    "source_type": "Social",
-    "platform": "facebook",
-    "entity_name": "Lotteria Myanmar",
-    "page_url": "https://www.facebook.com/LotteriaMyanmar",
-    "post_permalink": "https://www.facebook.com/LotteriaMyanmar/posts/pfbid029DJqUq8EQkMAvUTsiJUqPRNuQNotkziCR1gRGNvQSPfizarfwGiRB6Tc1rAm4y7Tl",
-    "platform_content_id": "pfbid029DJqUq8EQkMAvUTsiJUqPRNuQNotkziCR1gRGNvQSPfizarfwGiRB6Tc1rAm4y7Tl",
-    "identity_source": "permalink",
-    "content_hash": "8a64743849ec1a32865bd34832fbd1a27a059472d30e27fc304518f29102549a",
-    "title_or_post": "LOTTERIA SPECIAL OFFER IS HERE! ပူပူစပ်စပ် Red Hot Burger လေးနဲ့ ရင်အေးစရာ Iced Lemon Tea လေးပဲ သောက်မလား၊ ကြွပ်ကြွပ်ရွရွ ကြက်ကြော်လေးကလည်းပါသေးတယ် နော် (၃) မျိုးကို မှ 15,000 Ks !! ဒါ့အပြင့် ကြက်ကြော် ၃ တုံးနဲ့ Iced Lemon Tea 1+ Iced Coffee 1 ဆိုတော့ ချစ်သူ ၊ ခင်သူတွေ နဲ့ မျှ‌ ဝေအုံးမလား 20,500 Ks သာ ကျသင့်မှာပါနော် July 22nd – 24th, အတွင်းဆိုင်ခွဲ အားလုံးမှာ အထူးသက်သာတဲ့ စျေးနှုန်းတွေနဲ့ဝယ်ယူ ရရှိမှာမို့ နီးစပ်ရာ LOTTERIA ကို လာရောက်ပြီး ချစ်တို့စိတ်ကြိုက် Combo ကို ရွေးချယ်ခံစားလိုက်ပါဗျို့ #LOTTERIAMyanmar #LotteriaSpecialOffer #RedHotBurger #JulyPromotion #TheOriginalKBurger",
-    "post_timestamp": "2026-07-20T15:48:00+06:30",
-    "post_timestamp_exact": true,
-    "post_timestamp_source": "hover_tooltip",
-    "post_timestamp_label": "Monday 20 July 2026 at 15:48",
-    "reactions_breakdown": {
-      "like": 1300,
-      "love": 196,
-      "care": 4,
-      "haha": 0,
-      "wow": 1,
-      "sad": 0,
-      "angry": 1,
-      "total": 1502
-    },
-    "grouped_reactions": {
-      "passive_engagement": 1300,
-      "positive_affinity": 200,
-      "negative_risk": 1,
-      "expressive_virality": 1,
-      "positivity_ratio": 0.133156,
-      "negativity_ratio": 0.000666,
-      "haha_ratio": 0.0
-    },
-    "reactions_breakdown_complete": true,
-    "reactions_breakdown_exact": false,
-    "reaction_diagnostics": {
-      "status": "complete_compact",
-      "source": "dialog",
-      "summary_label": "All reactions: 1.5K",
-      "modal_attempts": 1,
-      "modal_opened": true,
-      "modal_stalled": false,
-      "known_reaction_sum": 1502,
-      "displayed_total": 1500,
-      "termination_reason": "complete",
-      "elapsed_ms": 2617
-    },
-    "total_shares": 79,
-    "total_comments": 62,
-    "feed_position": 4
-  },
-  {
-    "_id": "fb_post_85b7c5f04e2215f71fee340040c27d590e02c97f9262d7a4640e18dcc035546e",
-    "source_type": "Social",
-    "platform": "facebook",
-    "entity_name": "Lotteria Myanmar",
-    "page_url": "https://www.facebook.com/LotteriaMyanmar",
-    "post_permalink": "https://www.facebook.com/reel/3949234062045009/",
-    "platform_content_id": "3949234062045009",
-    "identity_source": "permalink",
-    "content_hash": "de16666784d4230ab12088b5002c7a65db301bd2afc18cc462fb83e0ea48c421",
-    "title_or_post": "သမ္ဘာရင့်ဝါရင့် ဘောပွဲ Fan စစ်စစ်တွေပဲ ဖြေနိုင်မယ့် မေးခွန်း အဖြေမှန်တဲ့ ဆရာကြီးတွေကတော့ Gift Voucher တွေအကုန်ယူကုန်ပြီ! ကဲ… ဘရိုတို့ရော Champion ဟောင်းတွေကို သိကြရဲ့လား? သိသလောက်လေး မန့်ခဲ့ကြည့်… Only true legends can answer these questions… The correct ones already claimed the gift vouchers. Bro, Do you know the former champions? If you do, drop the comment below! #LotteriaMyanmar #Lotteria #AuthenticKoreanTaste #Quality #GiftVouchers #FootballStreetInterview",
-    "post_timestamp": "2026-07-16T21:00:00+06:30",
-    "post_timestamp_exact": true,
-    "post_timestamp_source": "hover_tooltip",
-    "post_timestamp_label": "Thursday 16 July 2026 at 21:00",
-    "reactions_breakdown": {
-      "like": 3200,
-      "love": 48,
-      "care": 3,
-      "haha": 3,
-      "wow": 2,
-      "sad": 0,
-      "angry": 0,
-      "total": 3256
-    },
-    "grouped_reactions": {
-      "passive_engagement": 3200,
-      "positive_affinity": 51,
-      "negative_risk": 0,
-      "expressive_virality": 5,
-      "positivity_ratio": 0.015663,
-      "negativity_ratio": 0.0,
-      "haha_ratio": 0.000921
-    },
-    "reactions_breakdown_complete": true,
-    "reactions_breakdown_exact": false,
-    "reaction_diagnostics": {
-      "status": "complete_compact",
-      "source": "dialog",
-      "summary_label": "All reactions: 3.2K",
-      "modal_attempts": 1,
-      "modal_opened": true,
-      "modal_stalled": false,
-      "known_reaction_sum": 3256,
-      "displayed_total": 3200,
-      "termination_reason": "complete",
-      "elapsed_ms": 3198
-    },
-    "total_shares": 6,
-    "total_comments": 6,
-    "feed_position": 5
   }
 ]

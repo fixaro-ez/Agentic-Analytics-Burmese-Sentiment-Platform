@@ -40,6 +40,8 @@ This table stores engagement metrics scraped from Facebook posts. It links back 
 | `entity_id` | INT | REFERENCES dim_entities(entity_id) | Foreign key linking to the page in dim_entities. |
 | `post_timestamp` | TIMESTAMP | — | Time the post was published. |
 | `post_text` | TEXT | — | The full text of the Facebook post. |
+| `promoted_apsects` | TEXT[] | — | Array of detected aspects |
+| `aspect_confidence` | JSONB | — |  Optional: Store confidence scores |
 | `total_reactions` | INT | — | Total number of reactions. |
 | `like_count` | INT | — | Number of 'Like' reactions. |
 | `love_count` | INT | — | Number of 'Love' reactions. |
@@ -60,6 +62,8 @@ CREATE TABLE fact_social_posts (
     entity_id INT REFERENCES dim_entities(entity_id),
     post_timestamp TIMESTAMP,
     post_text TEXT,
+    promoted_aspects TEXT[],
+    aspect_confidence JSONB,              
     total_reactions INT,
     like_count INT,
     love_count INT,
