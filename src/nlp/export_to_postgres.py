@@ -149,11 +149,11 @@ def export_fact_social_posts(db, cur, dry_run: bool = False) -> int:
             post_id, entity_id, post_timestamp, post_text,
             promoted_aspects, aspect_confidence,
             total_reactions, like_count, love_count, haha_count,
-            sad_count, angry_count, care_count,
+            sad_count, angry_count, care_count, wow_count,
             shares_count, comments_count,
             positivity_ratio, negativity_ratio
         ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
         )
         ON CONFLICT (post_id) DO UPDATE SET
             entity_id = EXCLUDED.entity_id,
@@ -168,6 +168,7 @@ def export_fact_social_posts(db, cur, dry_run: bool = False) -> int:
             sad_count = EXCLUDED.sad_count,
             angry_count = EXCLUDED.angry_count,
             care_count = EXCLUDED.care_count,
+            wow_count = EXCLUDED.wow_count,
             shares_count = EXCLUDED.shares_count,
             comments_count = EXCLUDED.comments_count,
             positivity_ratio = EXCLUDED.positivity_ratio,
@@ -197,6 +198,7 @@ def export_fact_social_posts(db, cur, dry_run: bool = False) -> int:
             doc.get("sad_count"),
             doc.get("angry_count"),
             doc.get("care_count"),
+            doc.get("wow_count"),
             doc.get("shares_count"),
             doc.get("comments_count"),
             doc.get("positivity_ratio"),

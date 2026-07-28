@@ -28,6 +28,7 @@ CREATE TABLE fact_social_posts (
     sad_count INT,
     angry_count INT,
     care_count INT,
+    wow_count INT,
     shares_count INT,
     comments_count INT,
     positivity_ratio DECIMAL(5,4),

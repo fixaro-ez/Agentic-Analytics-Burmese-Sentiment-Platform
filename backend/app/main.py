@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .database import close_pool
-from .routers import alerts, analytics, chat, entities, etl, mining
+from .routers import alerts, analytics, chat, entities, etl, mining, scraping
 
 
 @asynccontextmanager
@@ -37,6 +37,7 @@ app.include_router(etl.router, prefix="/api/etl", tags=["etl"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(mining.router, prefix="/api/mining", tags=["mining"])
+app.include_router(scraping.router, prefix="/api/scraping", tags=["scraping"])
 
 
 @app.get("/api/health")

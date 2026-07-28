@@ -45,22 +45,25 @@ Authorization: Bearer <supabase-jwt-token>
 | GET | `/api/etl/status` | Done |
 | GET | `/api/etl/history` | Done |
 
-### Existing Frontend Pages (shell with TODOs)
+### Existing Frontend Pages
 | Page | Status |
 |------|--------|
 | `/login` | Functional (Supabase Auth working) |
-| `/dashboard` | Shell (KPI cards + chart placeholders) |
-| `/entities` | Shell (table placeholder) |
-| `/analytics` | Shell (chart placeholders) |
-| `/chat` | Shell (input + result placeholder) |
+| `/dashboard` | Wired with real API (KPIs + charts from backend) |
+| `/entities` | Shell (table placeholder) — Member C fills |
+| `/analytics` | Shell (chart placeholders) — Member D fills |
+| `/chat` | Shell (input + result placeholder) — Member B fills |
 | `/alerts` | Shell (list + config placeholder) |
+| `/scraping` | Wired with real API (source selector + polling + history) |
 | `/mining` | Shell (cards placeholder) |
 
 ---
 
-## Member A: Chat with Data (Backend + Frontend)
+## Member A: Chat Backend (LangChain Text-to-SQL)
 
-You own the entire "Chat with Data" feature — from LangChain agent to the chat UI.
+You own the Chat with Data backend — the LangChain agent that converts natural language to SQL and returns results.
+
+**Note:** Member B owns the Chat frontend. You only implement the backend API.
 
 ### Your Files
 
@@ -69,10 +72,8 @@ You own the entire "Chat with Data" feature — from LangChain agent to the chat
 | `backend/app/services/chat.py` | **FILL** | Implement LangChain Text-to-SQL agent |
 | `backend/app/routers/chat.py` | **FILL** | Wire real queries + history storage |
 | `backend/app/models/chat.py` | **EXTEND** | Add `ChatHistoryItem` model |
-| `frontend/src/app/(app)/chat/page.tsx` | **FILL** | Full chat interface |
-| `frontend/src/lib/types.ts` | **EXTEND** | Add `ChatHistoryItem` type |
 
-### Backend Tasks
+### Tasks
 
 **1. Implement Text-to-SQL** (`backend/app/services/chat.py`):
 
@@ -153,23 +154,12 @@ CREATE POLICY "Service role can insert chat history"
 Then in the `chat_query` endpoint, after getting the response, insert into `chat_history`.
 In `chat_history` endpoint, query `WHERE user_id = current_user_id ORDER BY created_at DESC LIMIT 50`.
 
-### Frontend Tasks
+**3. API contract for Member B:**
 
-**Fill Chat Page** (`frontend/src/app/(app)/chat/page.tsx`):
-
-1. Wire the input + Send button to `api.post("/api/chat/query", { question })`
-2. Display the response:
-   - SQL query in `<pre><code>` with monospace font
-   - Results in a simple HTML table
-   - Explanation text
-   - Error message (red) if present
-3. Add a message history list (each message shows question + SQL + results)
-4. Add example questions as clickable buttons:
-   - "Which entity has the most negative reviews?"
-   - "Show me sentiment trends for the last 7 days"
-   - "What are the top 3 aspects with negative sentiment?"
-5. Add a loading spinner while the query runs
-6. Add a sidebar showing chat history (fetch `GET /api/chat/history`)
+| Endpoint | Request | Response |
+|----------|---------|----------|
+| `POST /api/chat` | `{ "question": "..." }` | `{ "question", "sql", "results", "explanation", "error" }` |
+| `GET /api/chat/history` | — | `[{ "chat_id", "question", "created_at" }]` |
 
 ### Dependencies
 ```bash
@@ -178,109 +168,67 @@ pip install langchain langchain-openai langgraph langchain-community
 
 ---
 
-## Member B: Alerts System (Backend + Frontend)
+## Member B: Chat Frontend (UI)
 
-You own the entire Alerts feature — sentiment monitoring backend + alerts UI.
+You own the Chat with Data frontend — the conversational UI that talks to Member A's LangChain backend.
 
 ### Your Files
 
 | File | Action | Description |
 |------|--------|-------------|
-| `backend/app/services/alerts.py` | **CREATE** | Alert detection + CRUD service |
-| `backend/app/routers/alerts.py` | **FILL** | Replace stubs with real queries |
-| `backend/app/models/chat.py` | **EXTEND** | Add `AlertSummary` model if needed |
-| `frontend/src/app/(app)/alerts/page.tsx` | **FILL** | Alert list + config form |
+| `frontend/src/app/(app)/chat/page.tsx` | **FILL** | Full chat interface |
+| `frontend/src/lib/types.ts` | **EXTEND** | Add `ChatMessage`, `ChatHistoryItem` types |
+| `frontend/src/components/chat/` | **CREATE** | Reusable chat components (message bubble, input, history sidebar) |
 
-### Backend Tasks
+### Tasks
 
-**1. Create SQL tables** (run in Supabase dashboard):
-```sql
-CREATE TABLE alerts (
-    alert_id SERIAL PRIMARY KEY,
-    entity_id INT REFERENCES dim_entities(entity_id),
-    alert_type VARCHAR(50) NOT NULL,
-    severity VARCHAR(20) NOT NULL DEFAULT 'medium',
-    message TEXT NOT NULL,
-    metadata JSONB,
-    acknowledged BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+**1. Add TypeScript types** (`frontend/src/lib/types.ts`):
 
-CREATE TABLE alert_config (
-    id SERIAL PRIMARY KEY DEFAULT 1,
-    negative_threshold DECIMAL(5,4) DEFAULT 0.3,
-    spike_window_hours INT DEFAULT 24,
-    spike_zscore DECIMAL(5,2) DEFAULT 2.0,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+```typescript
+export interface ChatMessage {
+  role: "user" | "assistant"
+  content: string
+  sql?: string           // SQL query if the assistant generated one
+  results?: Record<string, unknown>[]  // Query results
+  timestamp: string
+}
 
-INSERT INTO alert_config (negative_threshold, spike_window_hours, spike_zscore)
-VALUES (0.3, 24, 2.0);
-
-ALTER TABLE alerts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE alert_config ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Authenticated can read alerts"
-  ON alerts FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Service role can manage alerts"
-  ON alerts FOR ALL TO service_role USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated can read config"
-  ON alert_config FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Service role can manage config"
-  ON alert_config FOR ALL TO service_role USING (true) WITH CHECK (true);
-
-CREATE INDEX idx_alerts_created ON alerts(created_at DESC);
-CREATE INDEX idx_alerts_ack ON alerts(acknowledged);
+export interface ChatHistoryItem {
+  chat_id: string
+  question: string
+  created_at: string
+}
 ```
 
-**2. Create Alert Service** (`backend/app/services/alerts.py`):
+**2. Build Chat Page** (`frontend/src/app/(app)/chat/page.tsx`):
 
-```python
-async def get_alerts(pool, acknowledged: bool | None = None) -> list[dict]:
-    # SELECT from alerts ORDER BY created_at DESC
-    # Filter by acknowledged if provided
+Layout: 3-panel design
+- Left sidebar: Chat history list (previous questions)
+- Center: Message thread (user bubbles right, assistant bubbles left)
+- Bottom: Input bar with send button
 
-async def acknowledge_alert(pool, alert_id: int) -> bool:
-    # UPDATE alerts SET acknowledged = TRUE WHERE alert_id = $1
+Steps:
+1. Fetch `GET /api/chat/history` on mount → show in left sidebar
+2. On send: POST to `/api/chat` with `{ question: "..." }`
+3. Show user message immediately, then stream/appear assistant response
+4. If response includes `sql` and `results`, render a small data table inline
+5. Handle errors gracefully (show error message in chat bubble)
 
-async def get_config(pool) -> dict:
-    # SELECT from alert_config WHERE id = 1
+**3. Create Chat Components** (optional, but recommended):
 
-async def update_config(pool, config: AlertConfig) -> dict:
-    # UPDATE alert_config SET ... WHERE id = 1
+| Component | Purpose |
+|-----------|---------|
+| `ChatMessageBubble.tsx` | Single message — different styles for user vs assistant |
+| `ChatInput.tsx` | Text input + send button, Enter to submit |
+| `ChatHistorySidebar.tsx` | List of previous questions, click to reload |
 
-async def check_for_anomalies(pool) -> list[dict]:
-    # 1. Read config thresholds
-    # 2. Query v_sentiment_daily_trends for last N hours
-    # 3. For each entity, calculate:
-    #    - Current negative_ratio
-    #    - Z-score = (current - mean) / stddev over the window
-    # 4. If negative_ratio > threshold OR zscore > spike_zscore:
-    #    - INSERT into alerts
-    #    - Return newly created alerts
-```
+### Backend Dependency
 
-**3. Fill Alert Router** (`backend/app/routers/alerts.py`):
+Member A implements the backend:
+- `POST /api/chat` → returns `ChatResponse` with `question`, `sql`, `results`, `explanation`, `error`
+- `GET /api/chat/history` → returns list of past questions
 
-Replace the existing stubs:
-- `GET /api/alerts` → query alerts with optional `?acknowledged=true|false` filter
-- `POST /api/alerts/config` → update alert config
-- `POST /api/alerts/check` → run anomaly detection, return new alerts
-- Add `PATCH /api/alerts/{id}/acknowledge` → mark alert as acknowledged
-
-### Frontend Tasks
-
-**Fill Alerts Page** (`frontend/src/app/(app)/alerts/page.tsx`):
-
-1. Fetch `GET /api/alerts` and display in a list
-2. Each alert shows:
-   - Severity as Badge: `critical` = red, `high` = orange, `medium` = yellow, `low` = blue
-   - Entity name, alert type, message, timestamp
-   - "Acknowledge" button (calls `PATCH /api/alerts/{id}/acknowledge`)
-3. Filter toggle: All / Unacknowledged
-4. Config section:
-   - Sliders or number inputs for `negative_threshold`, `spike_window_hours`, `spike_zscore`
-   - "Save Config" button (calls `POST /api/alerts/config`)
+You build the UI assuming these contracts.
 
 ---
 
@@ -525,33 +473,32 @@ Simple toast system:
 
 ---
 
-## You (Last): Data Scientist (Mining Algorithms)
 
-Implement after all other features are stable. See original `docs/TASK_ASSIGNMENTS.md` Member 3 section.
 
 ---
 
 ## Dependency Graph
 
 ```
-Member A (Chat) ←── needs OPENAI_API_KEY in backend/.env
+Member A (Chat Backend) ←── needs OPENAI_API_KEY in backend/.env
     │
-Member B (Alerts) ←── needs alerts + alert_config tables (you create them)
+Member B (Chat Frontend) ←── needs Member A's Chat backend (POST /api/chat, GET /api/chat/history)
     │
-Member C (Dashboard) ←── uses Table from Member E, charts are self-contained
+Member C (Dashboard + Entities) ←── uses Table/Skeleton from Member E
     │
-Member D (Analytics) ←── uses charts from Member C (shared components)
+Member D (Analytics Charts) ←── uses shared chart patterns from Member C
     │
-Member E (Polish) ←── independent, can start immediately
-    │                    Table/Skeleton components used by C and D
+Member E (Polish + Shared Components) ←── independent, can start immediately
+    │                                          Table/Skeleton used by C and D
     │
-You (Mining) ←── LAST, after everything else works
+You (Data Mining) ←── LAST, after all features stable
 ```
 
-**Recommended parallel work:**
-- Week 1: Members A, B, E work in parallel (no dependencies between them)
-- Week 2: Members C, D start (E's Table/Skeleton ready by now)
-- Week 3: Integration testing + You start Mining
+**Parallel work recommendation:**
+- **Wave 1 (start together):** Member A (Chat Backend), Member E (Polish/Shared) — independent
+- **Wave 2 (after A done):** Member B (Chat Frontend) — needs A's backend
+- **Wave 3 (after E done):** Member C (Dashboard/Entities), Member D (Analytics) — need E's Table/Skeleton
+- **Last:** You (Data Mining) — after everything else works
 
 ## Architecture Reference
 
