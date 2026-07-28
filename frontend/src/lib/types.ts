@@ -81,6 +81,45 @@ export interface AlertItem {
   acknowledged: boolean
 }
 
+// ---------- Scraping types ----------
+
+export interface ScrapeRunResponse {
+  run_id: string
+  status: string
+  message: string
+}
+
+export interface ScrapeRunStatus {
+  run_id: string
+  source: string
+  entity_name: string
+  url: string
+  status: string
+  started_at: string
+  completed_at: string | null
+  duration_seconds: number | null
+  stats: Record<string, unknown> | null
+  error: string | null
+}
+
+export interface ScrapeRunHistory {
+  run_id: string
+  run_type: string
+  status: string
+  started_at: string
+  completed_at: string | null
+  duration_seconds: number | null
+  stats: Record<string, unknown> | null
+  error: string | null
+}
+
+export interface CookieStatus {
+  exists: boolean
+  valid: boolean
+  expires_at: string | null
+  message: string
+}
+
 export const ASPECT_LABELS: Record<string, string> = {
   product_or_service_quality: "Product/Service Quality",
   fulfillment_and_speed: "Fulfillment & Speed",
