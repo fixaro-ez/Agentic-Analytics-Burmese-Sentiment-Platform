@@ -12,9 +12,9 @@ permissions:
   contents: read
 
 jobs:
-  # 1. Blocks anyone attempting a direct 'git push origin main'
+  # 1. Blocks anyone attempting a direct push, EXCEPT you
   block-direct-pushes:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.actor != 'fixaro-ez'
     runs-on: ubuntu-latest
     steps:
       - name: Reject Push
@@ -32,3 +32,4 @@ jobs:
         uses: github/copilot-review-action@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+
