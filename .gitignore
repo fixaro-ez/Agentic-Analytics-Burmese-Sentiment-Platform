@@ -9,6 +9,7 @@ __pycache__/
 
 # Secrets / runtime files
 cookies.json
+.env
 
 # Debug / runtime JSON outputs
 facebook_data.json

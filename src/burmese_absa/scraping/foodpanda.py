@@ -614,6 +614,11 @@ def derive_foodpanda_entity_name(entity_name, page, shop_url):
     try:
         title = normalize_foodpanda_text(page.title())
         title = re.split(r'\s*[|–—-]\s*(?:foodpanda.*)?$', title, maxsplit=1, flags=re.I)[0]
+        title = re.sub(
+            r'^(?:ဝေဖန်)?သုံးသပ်ချက်(?:များ)?\s*|အဆင့်သတ်မှတ်ချက်(?:များ)?\s*',
+            '',
+            title,
+        ).strip()
         if title:
             return title
     except Exception:
