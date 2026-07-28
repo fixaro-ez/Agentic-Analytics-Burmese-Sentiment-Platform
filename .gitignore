@@ -46,3 +46,11 @@ mongo_data/
 
 # Local model weights (3.2 GB, download from HuggingFace instead)
 models/
+
+# Backend
+backend/.env
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
