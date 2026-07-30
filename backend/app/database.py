@@ -21,6 +21,10 @@ async def get_pool() -> asyncpg.Pool:
             database=settings.PG_DBNAME,
             min_size=2,
             max_size=10,
+            # Supabase's transaction-mode pooler (port 6543) does not support
+            # prepared statements. Disabling asyncpg's statement cache is also
+            # safe for direct and session-mode connections.
+            statement_cache_size=0,
         )
     return _pool
 

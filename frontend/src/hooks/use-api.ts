@@ -19,27 +19,58 @@ export function useApi<T>(
   path: string,
   options: UseApiOptions<T> = {}
 ): UseApiResult<T> {
-  const [data, setData] = useState<T | undefined>(options.initialData)
-  const [loading, setLoading] = useState(!options.skip)
-  const [error, setError] = useState<string | null>(null)
-
-  const fetchData = useCallback(async () => {
-    if (options.skip) return
-    setLoading(true)
-    setError(null)
-    try {
-      const result = await api.get<T>(path)
-      setData(result)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error")
-    } finally {
-      setLoading(false)
-    }
-  }, [path, options.skip])
+  const { initialData, skip = false } = options
+  const [requestVersion, setRequestVersion] = useState(0)
+  const [state, setState] = useState<{
+    path: string
+    version: number
+    data: T | undefined
+    error: string | null
+  }>({
+    path,
+    version: -1,
+    data: initialData,
+    error: null,
+  })
 
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    if (skip) return
+    let cancelled = false
 
-  return { data, loading, error, refetch: fetchData }
+    api.get<T>(path).then(
+      (result) => {
+        if (!cancelled) {
+          setState({ path, version: requestVersion, data: result, error: null })
+        }
+      },
+      (err) => {
+        if (!cancelled) {
+          setState({
+            path,
+            version: requestVersion,
+            data: undefined,
+            error: err instanceof Error ? err.message : "Unknown error",
+          })
+        }
+      }
+    )
+
+    return () => {
+      cancelled = true
+    }
+  }, [path, requestVersion, skip])
+
+  const refetch = useCallback(() => {
+    setRequestVersion((version) => version + 1)
+  }, [])
+
+  const requestIsCurrent =
+    state.path === path && state.version === requestVersion
+
+  return {
+    data: state.data,
+    loading: !skip && !requestIsCurrent,
+    error: requestIsCurrent ? state.error : null,
+    refetch,
+  }
 }

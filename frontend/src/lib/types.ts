@@ -81,6 +81,41 @@ export interface AlertItem {
   acknowledged: boolean
 }
 
+export interface AlertConfig {
+  negative_threshold: number
+  spike_window_hours: number
+  spike_zscore: number
+}
+
+export interface AssociationRule {
+  antecedent: string[]
+  consequent: string[]
+  support: number
+  confidence: number
+  lift: number
+}
+
+export interface EntityClusterMember {
+  entity_id: number
+  entity_name: string
+  platform: string
+  total_reviews: number
+  positive_ratio: number
+  negative_ratio: number
+  avg_confidence: number
+}
+
+export interface EntityCluster {
+  cluster_id: number
+  label: string
+  entities: EntityClusterMember[]
+  centroid: {
+    positive_ratio: number
+    negative_ratio: number
+    avg_confidence: number
+  }
+}
+
 // ---------- Scraping types ----------
 
 export interface ScrapeRunResponse {
@@ -100,6 +135,7 @@ export interface ScrapeRunStatus {
   duration_seconds: number | null
   stats: Record<string, unknown> | null
   error: string | null
+  etl_run_id: string | null
 }
 
 export interface ScrapeRunHistory {
@@ -127,4 +163,33 @@ export const ASPECT_LABELS: Record<string, string> = {
   digital_experience: "Digital Experience",
   customer_support: "Customer Support",
   variety_and_availability: "Variety & Availability",
+}
+
+export interface EntityAspectItem {
+  aspect_category: string
+  sentiment_label: string
+  count: number
+}
+
+export interface EntityReview {
+  review_text: string | null
+  sentiment_label: string | null
+  confidence_score: number | null
+  aspect_category: string | null
+  created_at: string | null
+}
+
+export interface EntityDetail {
+  entity_id: number
+  entity_name: string
+  platform: string
+  total_reviews: number
+  positive_count: number
+  negative_count: number
+  neutral_count: number
+  positive_ratio: number | null
+  negative_ratio: number | null
+  avg_confidence: number | null
+  aspects: EntityAspectItem[]
+  reviews: EntityReview[]
 }

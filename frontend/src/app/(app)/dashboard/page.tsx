@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -11,6 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { SentimentTrendChart } from "@/components/charts/sentiment-trend-chart"
+import { DataError } from "@/components/data-error"
 import {
   useSentimentOverview,
   useEntitySentiments,
@@ -20,10 +22,31 @@ import {
 import { ASPECT_LABELS } from "@/lib/types"
 
 export default function DashboardPage() {
-  const { data: overview, loading: loadingOverview } = useSentimentOverview()
-  const { data: entitiesData, loading: loadingEntities } = useEntitySentiments()
-  const { data: aspectsData, loading: loadingAspects } = useAspectBreakdown()
-  const { data: trendsData, loading: loadingTrends } = useSentimentTrends()
+  const {
+    data: overview,
+    loading: loadingOverview,
+    error: overviewError,
+    refetch: refetchOverview,
+  } = useSentimentOverview()
+  const {
+    data: entitiesData,
+    loading: loadingEntities,
+    error: entitiesError,
+    refetch: refetchEntities,
+  } = useEntitySentiments()
+  const {
+    data: aspectsData,
+    loading: loadingAspects,
+    error: aspectsError,
+    refetch: refetchAspects,
+  } = useAspectBreakdown()
+  const {
+    data: trendsData,
+    loading: loadingTrends,
+    error: trendsError,
+    refetch: refetchTrends,
+  } = useSentimentTrends()
+  const router = useRouter()
 
   return (
     <div className="space-y-6">
@@ -33,6 +56,10 @@ export default function DashboardPage() {
           Overview of Burmese sentiment analytics across all entities.
         </p>
       </div>
+
+      {overviewError && (
+        <DataError message={overviewError} onRetry={refetchOverview} />
+      )}
 
       {/* ---- KPI Cards ---- */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -103,10 +130,14 @@ export default function DashboardPage() {
             <CardDescription>Daily sentiment counts over time</CardDescription>
           </CardHeader>
           <CardContent>
-            <SentimentTrendChart
-              data={trendsData?.trends ?? []}
-              loading={loadingTrends}
-            />
+            {trendsError ? (
+              <DataError message={trendsError} onRetry={refetchTrends} />
+            ) : (
+              <SentimentTrendChart
+                data={trendsData?.trends ?? []}
+                loading={loadingTrends}
+              />
+            )}
           </CardContent>
         </Card>
 
@@ -116,7 +147,9 @@ export default function DashboardPage() {
             <CardDescription>Sentiment distribution across ABSA aspects</CardDescription>
           </CardHeader>
           <CardContent>
-            {loadingAspects ? (
+            {aspectsError ? (
+              <DataError message={aspectsError} onRetry={refetchAspects} />
+            ) : loadingAspects ? (
               <div className="space-y-2">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <Skeleton key={i} className="h-6 w-full" />
@@ -124,26 +157,29 @@ export default function DashboardPage() {
               </div>
             ) : aspectsData?.aspects && aspectsData.aspects.length > 0 ? (
               <div className="space-y-3">
-                {aspectsData.aspects.map((a) => (
+                {(() => {
+                  const maxCount = Math.max(...aspectsData.aspects.map((a) => a.count), 1)
+                  return aspectsData.aspects.map((a) => (
                   <div key={`${a.aspect}-${a.sentiment}`} className="flex items-center gap-3">
                     <span className="w-48 truncate text-sm" title={ASPECT_LABELS[a.aspect] ?? a.aspect}>
                       {ASPECT_LABELS[a.aspect] ?? a.aspect}
                     </span>
                     <span
                       className={`inline-block h-3 rounded ${
-                        a.sentiment === "positive"
-                          ? "bg-green-500"
-                          : a.sentiment === "negative"
-                          ? "bg-red-500"
-                          : "bg-yellow-400"
+                        a.sentiment.toLowerCase() === "positive"
+                          ? "bg-green-500 dark:bg-green-600"
+                          : a.sentiment.toLowerCase() === "negative"
+                          ? "bg-red-500 dark:bg-red-600"
+                          : "bg-yellow-400 dark:bg-yellow-500"
                       }`}
-                      style={{ width: `${Math.min((a.count / (overview?.total_reviews || 1)) * 200, 200)}px` }}
+                      style={{ width: `${(a.count / maxCount) * 200}px` }}
                     />
                     <span className="text-xs text-muted-foreground">
                       {a.sentiment} ({a.count})
                     </span>
                   </div>
-                ))}
+                  ))
+                })()}
               </div>
             ) : (
               <div className="flex h-64 items-center justify-center rounded-md border border-dashed">
@@ -161,14 +197,17 @@ export default function DashboardPage() {
           <CardDescription>Sentiment overview per entity</CardDescription>
         </CardHeader>
         <CardContent>
-          {loadingEntities ? (
+          {entitiesError ? (
+            <DataError message={entitiesError} onRetry={refetchEntities} />
+          ) : loadingEntities ? (
             <div className="space-y-2">
               {Array.from({ length: 3 }).map((_, i) => (
                 <Skeleton key={i} className="h-10 w-full" />
               ))}
             </div>
           ) : entitiesData?.entities && entitiesData.entities.length > 0 ? (
-            <Table>
+            <div className="overflow-x-auto">
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Entity</TableHead>
@@ -181,7 +220,19 @@ export default function DashboardPage() {
               </TableHeader>
               <TableBody>
                 {entitiesData.entities.map((e) => (
-                  <TableRow key={e.entity_id}>
+                  <TableRow
+                    key={e.entity_id}
+                    className="cursor-pointer"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => router.push(`/entities/${e.entity_id}`)}
+                    onKeyDown={(ev) => {
+                      if (ev.key === "Enter" || ev.key === " ") {
+                        ev.preventDefault()
+                        router.push(`/entities/${e.entity_id}`)
+                      }
+                    }}
+                  >
                     <TableCell className="font-medium">{e.entity_name}</TableCell>
                     <TableCell>{e.platform}</TableCell>
                     <TableCell className="text-right">{e.total_reviews}</TableCell>
@@ -196,6 +247,7 @@ export default function DashboardPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           ) : (
             <div className="flex h-48 items-center justify-center rounded-md border border-dashed">
               <p className="text-sm text-muted-foreground">No entity data available</p>

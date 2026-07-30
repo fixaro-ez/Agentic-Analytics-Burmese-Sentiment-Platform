@@ -1,8 +1,51 @@
 "use client"
 
+import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { SentimentTrendChart } from "@/components/charts/sentiment-trend-chart"
+import { AspectBarChart } from "@/components/charts/aspect-bar-chart"
+import { EngagementChart } from "@/components/charts/engagement-chart"
+import { EntityRadar } from "@/components/charts/entity-radar"
+import { DataError } from "@/components/data-error"
+import {
+  useSentimentTrendsFiltered,
+  useAspectBreakdown,
+  useFacebookEngagement,
+  useEntitySentiments,
+} from "@/hooks/use-analytics"
 
 export default function AnalyticsPage() {
+  const [days, setDays] = useState(30)
+  const [entityFilter, setEntityFilter] = useState<number | undefined>(undefined)
+
+  const {
+    data: entitiesData,
+    loading: loadingEntities,
+    error: entitiesError,
+    refetch: refetchEntities,
+  } = useEntitySentiments()
+  const {
+    data: trendsData,
+    loading: loadingTrends,
+    error: trendsError,
+    refetch: refetchTrends,
+  } = useSentimentTrendsFiltered(entityFilter, days)
+  const {
+    data: aspectsData,
+    loading: loadingAspects,
+    error: aspectsError,
+    refetch: refetchAspects,
+  } = useAspectBreakdown()
+  const {
+    data: engagementData,
+    loading: loadingEngagement,
+    error: engagementError,
+    refetch: refetchEngagement,
+  } = useFacebookEngagement()
+
+  const entities = entitiesData?.entities ?? []
+
   return (
     <div className="space-y-6">
       <div>
@@ -13,67 +56,113 @@ export default function AnalyticsPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
-            <CardTitle>Sentiment Over Time</CardTitle>
-            <CardDescription>Track positive, neutral, and negative sentiment trends</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex h-72 items-center justify-center rounded-md border border-dashed">
-              <p className="text-sm text-muted-foreground">
-                TODO(Member 4): Recharts AreaChart with time range picker.
-                Fetch GET /api/analytics/trends?days=30.
-                Add entity filter dropdown.
-              </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Sentiment Over Time</CardTitle>
+                <CardDescription>
+                  Track positive, neutral, and negative sentiment trends
+                </CardDescription>
+              </div>
             </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex gap-2">
+              {[7, 30, 90].map((d) => (
+                <Button
+                  key={d}
+                  variant={days === d ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setDays(d)}
+                >
+                  {d}d
+                </Button>
+              ))}
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="entity-filter" className="text-sm font-medium text-muted-foreground">
+                Filter by entity
+              </label>
+              <select
+                id="entity-filter"
+                className="w-full rounded-md border px-3 py-1.5 text-sm bg-background"
+                value={entityFilter ?? ""}
+                onChange={(e) =>
+                  setEntityFilter(e.target.value ? Number(e.target.value) : undefined)
+                }
+              >
+                <option value="">All entities</option>
+                {entities.map((e) => (
+                  <option key={e.entity_id} value={e.entity_id}>
+                    {e.entity_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {trendsError ? (
+              <DataError message={trendsError} onRetry={refetchTrends} />
+            ) : (
+              <SentimentTrendChart
+                data={trendsData?.trends ?? []}
+                loading={loadingTrends}
+              />
+            )}
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Aspect Sentiment</CardTitle>
-            <CardDescription>How each aspect performs across all entities</CardDescription>
+            <CardDescription>
+              How each aspect performs across all entities
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex h-72 items-center justify-center rounded-md border border-dashed">
-              <p className="text-sm text-muted-foreground">
-                TODO(Member 4): Stacked BarChart grouped by aspect_category.
-                Fetch GET /api/analytics/aspects.
-                Color code: green=Positive, gray=Neutral, red=Negative.
-              </p>
-            </div>
+            {aspectsError ? (
+              <DataError message={aspectsError} onRetry={refetchAspects} />
+            ) : (
+              <AspectBarChart
+                data={aspectsData?.aspects ?? []}
+                loading={loadingAspects}
+              />
+            )}
           </CardContent>
         </Card>
       </div>
 
-      <Card>
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle>Facebook Engagement</CardTitle>
-          <CardDescription>Reaction breakdown and engagement metrics for Facebook pages</CardDescription>
+          <CardDescription>
+            Reaction breakdown and engagement metrics for Facebook pages
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex h-64 items-center justify-center rounded-md border border-dashed">
-            <p className="text-sm text-muted-foreground">
-              TODO(Member 4): BarChart of reactions (like, love, care, haha, wow, sad, angry).
-              Fetch GET /api/analytics/engagement.
-            </p>
-          </div>
+          {engagementError ? (
+            <DataError message={engagementError} onRetry={refetchEngagement} />
+          ) : (
+            <EngagementChart
+              data={engagementData?.engagement ?? []}
+              loading={loadingEngagement}
+            />
+          )}
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle>Entity Comparison</CardTitle>
-          <CardDescription>Compare sentiment profiles across entities</CardDescription>
+          <CardDescription>
+            Compare sentiment profiles across entities
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex h-64 items-center justify-center rounded-md border border-dashed">
-            <p className="text-sm text-muted-foreground">
-              TODO(Member 4): RadarChart comparing entities on 6 aspects.
-              Fetch GET /api/analytics/entities.
-              Use ASPECT_LABELS from lib/types.ts for display names.
-            </p>
-          </div>
+          {entitiesError ? (
+            <DataError message={entitiesError} onRetry={refetchEntities} />
+          ) : (
+            <EntityRadar entities={entities} loading={loadingEntities} />
+          )}
         </CardContent>
       </Card>
     </div>

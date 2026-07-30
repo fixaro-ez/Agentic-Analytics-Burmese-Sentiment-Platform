@@ -172,7 +172,7 @@ def export_fact_social_posts(db, cur, dry_run: bool = False) -> int:
             shares_count = EXCLUDED.shares_count,
             comments_count = EXCLUDED.comments_count,
             positivity_ratio = EXCLUDED.positivity_ratio,
-            negativity_ratio = EXCLUDED.negativity_ratio
+            negativity_ratio = EXCLUDED.negativity_ratio;
     """
 
     count = 0

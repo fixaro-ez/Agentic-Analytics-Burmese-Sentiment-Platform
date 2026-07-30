@@ -157,38 +157,6 @@ def _run_foodpanda_sync(url: str, entity_name: str, headless: bool) -> dict[str,
 
 
 # ---------------------------------------------------------------------------
-# Blog scrape (sync Playwright, wrapped in a thread)
-# ---------------------------------------------------------------------------
-
-def _run_blog_sync(url: str, entity_name: str, headless: bool) -> dict[str, Any]:
-    """Sync Blog scrape — runs inside asyncio.to_thread."""
-    from playwright.sync_api import sync_playwright
-    from burmese_absa.scraping.foodpanda import scrape_business_blog
-    from burmese_absa.scraping.storage import session_data
-    from burmese_absa.scraping.lifecycle import (
-        get_db as get_mongo_db,
-        save_session_data_to_mongo,
-    )
-
-    client, db = get_mongo_db()
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=headless)
-            try:
-                page = browser.new_page()
-                scrape_business_blog(page, url, entity_name)
-            finally:
-                browser.close()
-
-        save_session_data_to_mongo(db)
-        count = len(session_data)
-        session_data.clear()
-        return {"reviews_scraped": count}
-    finally:
-        client.close()
-
-
-# ---------------------------------------------------------------------------
 # Public API — called by the router
 # ---------------------------------------------------------------------------
 
@@ -219,12 +187,15 @@ async def start_scrape(
                 stats = await asyncio.to_thread(
                     _run_foodpanda_sync, url, entity_name, headless
                 )
-            elif source == "blog":
-                stats = await asyncio.to_thread(
-                    _run_blog_sync, url, entity_name, headless
-                )
             else:
                 raise ValueError(f"Unknown source: {source}")
+
+            # Auto-trigger full ETL pipeline (Clean → ABSA → Export)
+            from .etl import run_full_etl
+            etl_run_id = await run_full_etl(
+                reprocess=False, threshold=0.5, user_id=user_id
+            )
+            stats["etl_run_id"] = etl_run_id
 
             elapsed = time.time() - start
             stats["duration"] = round(elapsed, 2)
@@ -251,6 +222,7 @@ async def get_scrape_status(run_id: str) -> ScrapeRunStatus | None:
         return None
 
     stats = json.loads(row["stats"]) if row["stats"] else None
+    etl_run_id = stats.get("etl_run_id") if stats else None
     return ScrapeRunStatus(
         run_id=row["run_id"],
         source=stats.get("source", row["run_type"].replace("scrape_", "")) if stats else row["run_type"].replace("scrape_", ""),
@@ -262,6 +234,7 @@ async def get_scrape_status(run_id: str) -> ScrapeRunStatus | None:
         duration_seconds=row["duration_seconds"],
         stats=stats,
         error=row["error"],
+        etl_run_id=etl_run_id,
     )
 
 
@@ -340,4 +313,49 @@ def check_facebook_cookies() -> CookieStatus:
             exists=True,
             valid=False,
             message=f"Error reading cookies.json: {e}",
+        )
+
+
+def upload_facebook_cookies(file_content: bytes) -> CookieStatus:
+    """Upload and validate Facebook cookies.json file."""
+    try:
+        cookies = json.loads(file_content.decode("utf-8"))
+
+        if not isinstance(cookies, list) or len(cookies) == 0:
+            return CookieStatus(
+                exists=True,
+                valid=False,
+                message="Invalid format: must be a non-empty array of cookies.",
+            )
+
+        required_fields = {"name", "value", "domain"}
+        for i, cookie in enumerate(cookies):
+            if not isinstance(cookie, dict):
+                return CookieStatus(
+                    exists=True,
+                    valid=False,
+                    message=f"Invalid cookie at index {i}: must be an object.",
+                )
+            missing = required_fields - set(cookie.keys())
+            if missing:
+                return CookieStatus(
+                    exists=True,
+                    valid=False,
+                    message=f"Invalid cookie at index {i}: missing fields {missing}.",
+                )
+
+        COOKIE_PATH.write_text(json.dumps(cookies, indent=2), encoding="utf-8")
+        return check_facebook_cookies()
+
+    except json.JSONDecodeError as e:
+        return CookieStatus(
+            exists=False,
+            valid=False,
+            message=f"Invalid JSON: {e}",
+        )
+    except Exception as e:
+        return CookieStatus(
+            exists=False,
+            valid=False,
+            message=f"Upload failed: {e}",
         )

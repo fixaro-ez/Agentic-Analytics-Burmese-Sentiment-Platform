@@ -135,7 +135,10 @@ def is_real_foodpanda_review(record, source='dom'):
     date_known = bool(date)
     if source == 'dom':
         return (author_known or date_known or rating_known) and len(text) >= 3
-    return (author_known or date_known or rating_known) and len(text) >= 3
+    # API payloads contain more unrelated objects than the mounted review DOM.
+    # Require both identity fields so product metadata is not mistaken for a
+    # customer review merely because it has text and a numeric rating.
+    return bool(author_known and date_known and len(text) >= 3)
 
 
 def normalize_foodpanda_record(record):
@@ -417,7 +420,6 @@ def harvest_foodpanda_records(content_obj, records, seen_ids, shop_id, source='d
             'source': source,
             'author': record.get('author') or 'Unknown',
             'text': record['text'], 'raw_text': record['text'],
-            'rating': record.get('rating'),
             'raw_timestamp': record.get('date') or '',
             'timestamp': parse_foodpanda_relative_time(record.get('date', '')),
         })

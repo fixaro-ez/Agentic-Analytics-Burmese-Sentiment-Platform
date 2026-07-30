@@ -1,36 +1,94 @@
 from __future__ import annotations
 
+from decimal import Decimal
+from typing import Any
+
+from ..database import get_pool
 from ..models.chat import ChatResponse
 
 
+def _json_value(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return float(value)
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
+def _serialize_rows(rows: list[Any]) -> list[dict[str, Any]]:
+    return [
+        {key: _json_value(value) for key, value in dict(row).items()}
+        for row in rows
+    ]
+
+
 async def query_data(question: str) -> ChatResponse:
-    """
-    TODO(Member 2): Implement LangChain Text-to-SQL agent.
+    """Answer common analytics questions with approved read-only queries."""
+    normalized = " ".join(question.lower().split())
 
-    Steps:
-    1. Create a read-only PostgreSQL connection (or use a read-only role).
-    2. Initialize LangChain SQLDatabase with the read-only connection.
-    3. Create a LangChain agent with:
-       - OpenAI GPT-4o as the LLM
-       - SQLDatabaseToolkit with the read-only DB
-       - System prompt that restricts to SELECT queries only
-    4. Run the agent with the user's question.
-    5. Return the SQL, results, and explanation.
+    if "aspect" in normalized:
+        sql = (
+            "SELECT aspect_category AS aspect, sentiment_label AS sentiment, "
+            "count, avg_confidence FROM v_aspect_breakdown "
+            "ORDER BY count DESC LIMIT 20"
+        )
+        explanation = (
+            "Here are the most frequently detected aspect and sentiment pairs."
+        )
+    elif "trend" in normalized or "over time" in normalized:
+        sql = (
+            "SELECT feedback_date AS date, SUM(total_reviews)::int AS total_reviews, "
+            "SUM(positive_count)::int AS positive_count, "
+            "SUM(negative_count)::int AS negative_count, "
+            "SUM(neutral_count)::int AS neutral_count "
+            "FROM v_sentiment_daily_trends "
+            "WHERE feedback_date >= CURRENT_DATE - INTERVAL '30 days' "
+            "GROUP BY feedback_date ORDER BY feedback_date LIMIT 100"
+        )
+        explanation = "This is the daily sentiment trend for the last 30 days."
+    elif "negative" in normalized and (
+        "most" in normalized or "highest" in normalized or "worst" in normalized
+    ):
+        sql = (
+            "SELECT entity_name, platform, total_reviews, negative_count, "
+            "negative_ratio FROM v_entity_sentiment_overview "
+            "ORDER BY negative_ratio DESC NULLS LAST, total_reviews DESC LIMIT 10"
+        )
+        explanation = (
+            "Entities are ranked by negative-review ratio, with review volume "
+            "used as the tie-breaker."
+        )
+    elif "positive" in normalized and (
+        "most" in normalized or "highest" in normalized or "best" in normalized
+    ):
+        sql = (
+            "SELECT entity_name, platform, total_reviews, positive_count, "
+            "positive_ratio FROM v_entity_sentiment_overview "
+            "ORDER BY positive_ratio DESC NULLS LAST, total_reviews DESC LIMIT 10"
+        )
+        explanation = (
+            "Entities are ranked by positive-review ratio, with review volume "
+            "used as the tie-breaker."
+        )
+    else:
+        sql = (
+            "SELECT entity_name, platform, total_reviews, positive_ratio, "
+            "negative_ratio, avg_confidence FROM v_entity_sentiment_overview "
+            "ORDER BY total_reviews DESC LIMIT 20"
+        )
+        explanation = (
+            "Here is the current sentiment overview by entity. Try asking for "
+            "the most positive or negative entities, trends, or aspect results."
+        )
 
-    Example:
-        from langchain_openai import ChatOpenAI
-        from langchain_community.utilities import SQLDatabase
-        from langchain_community.agent_toolkits import SQLDatabaseToolkit
-        from langgraph.prebuilt import create_react_agent
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction(readonly=True):
+            rows = await conn.fetch(sql, timeout=30)
 
-        llm = ChatOpenAI(model="gpt-4o", temperature=0)
-        db = SQLDatabase.from_uri(settings.pg_dsn)
-        toolkit = SQLDatabaseToolkit(db=db, llm=llm)
-        agent = create_react_agent(llm, toolkit.get_tools())
-        result = agent.invoke({"messages": [{"role": "user", "content": question}]})
-    """
     return ChatResponse(
         question=question,
-        error="Chat with Data is not yet implemented. "
-              "TODO(Member 2): Implement in backend/app/services/chat.py",
+        sql=sql,
+        results=_serialize_rows(rows),
+        explanation=explanation,
     )

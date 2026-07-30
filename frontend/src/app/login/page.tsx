@@ -2,11 +2,17 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { BarChart3 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
+import { useToast } from "@/components/ui/toast"
+
+function validateEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -15,11 +21,23 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
+  const { toast } = useToast()
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
-    setLoading(true)
     setError(null)
+
+    if (!validateEmail(email)) {
+      setError("Please enter a valid email address")
+      return
+    }
+
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters")
+      return
+    }
+
+    setLoading(true)
 
     const { error } = await supabase.auth.signInWithPassword({ email, password })
 
@@ -34,8 +52,19 @@ export default function LoginPage() {
 
   async function handleSignUp(e: React.FormEvent) {
     e.preventDefault()
-    setLoading(true)
     setError(null)
+
+    if (!validateEmail(email)) {
+      setError("Please enter a valid email address")
+      return
+    }
+
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters")
+      return
+    }
+
+    setLoading(true)
 
     const { error } = await supabase.auth.signUp({ email, password })
 
@@ -49,11 +78,54 @@ export default function LoginPage() {
     setLoading(false)
   }
 
+  async function handleForgotPassword() {
+    if (!email) {
+      toast({
+        title: "Email required",
+        description: "Please enter your email address first",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!validateEmail(email)) {
+      toast({
+        title: "Invalid email",
+        description: "Please enter a valid email address",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email)
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      })
+    } else {
+      toast({
+        title: "Password reset email sent",
+        description: "Check your inbox for reset instructions",
+        variant: "success",
+      })
+    }
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center">
+    <main className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-xl">Burmese Sentiment Analytics</CardTitle>
+          <div className="flex justify-center mb-2">
+            <div className="rounded-lg bg-primary/10 p-3">
+              <BarChart3 className="h-8 w-8 text-primary" />
+            </div>
+          </div>
+          <h1 className="text-xl font-semibold leading-none tracking-tight">
+            Burmese Sentiment Analytics
+          </h1>
           <CardDescription>Sign in to access the dashboard</CardDescription>
         </CardHeader>
         <CardContent>
@@ -66,6 +138,8 @@ export default function LoginPage() {
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                autoFocus
+                autoComplete="email"
                 required
               />
             </div>
@@ -77,6 +151,7 @@ export default function LoginPage() {
                 placeholder="Your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
                 required
               />
             </div>
@@ -101,9 +176,18 @@ export default function LoginPage() {
                 Sign Up
               </Button>
             </div>
+
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full text-sm text-muted-foreground hover:text-primary"
+              onClick={handleForgotPassword}
+            >
+              Forgot password?
+            </Button>
           </form>
         </CardContent>
       </Card>
-    </div>
+    </main>
   )
 }

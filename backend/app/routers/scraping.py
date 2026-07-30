@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from ..auth import AuthUser, get_current_user
 from ..models.scraping import (
@@ -15,6 +15,7 @@ from ..services.scraping import (
     get_scrape_history,
     get_scrape_status,
     start_scrape,
+    upload_facebook_cookies,
 )
 
 router = APIRouter()
@@ -68,3 +69,13 @@ async def cookie_status(
 ):
     """Check if Facebook cookies.json exists and is valid."""
     return check_facebook_cookies()
+
+
+@router.post("/cookies", response_model=CookieStatus)
+async def upload_cookies(
+    file: UploadFile = File(...),
+    user: AuthUser = Depends(get_current_user),
+):
+    """Upload Facebook cookies.json file."""
+    content = await file.read()
+    return upload_facebook_cookies(content)

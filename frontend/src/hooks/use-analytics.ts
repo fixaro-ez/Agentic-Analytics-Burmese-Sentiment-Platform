@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo } from "react"
 import { useApi } from "./use-api"
 import type {
   SentimentOverview,
@@ -7,6 +8,7 @@ import type {
   AspectBreakdown,
   SentimentTrendPoint,
   FacebookEngagement,
+  EntityDetail,
 } from "@/lib/types"
 
 // ---------- Dashboard hooks ----------
@@ -38,4 +40,22 @@ export function useFacebookEngagement() {
   return useApi<{ engagement: FacebookEngagement[] }>(
     "/api/analytics/engagement"
   )
+}
+
+/** GET /api/analytics/entities/{entityId} — full entity detail with aspects and reviews */
+export function useEntityDetail(entityId: number) {
+  return useApi<EntityDetail>(`/api/analytics/entities/${entityId}`, {
+    skip: !entityId,
+  })
+}
+
+/** GET /api/analytics/trends — daily sentiment trend points with optional filters */
+export function useSentimentTrendsFiltered(entityId?: number, days: number = 30) {
+  const path = useMemo(() => {
+    const params = new URLSearchParams()
+    if (entityId) params.set("entity_id", String(entityId))
+    params.set("days", String(days))
+    return `/api/analytics/trends?${params}`
+  }, [entityId, days])
+  return useApi<{ trends: SentimentTrendPoint[] }>(path)
 }

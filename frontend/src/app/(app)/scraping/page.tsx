@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,6 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { api } from "@/lib/api"
+import { useApi } from "@/hooks/use-api"
 import type {
   ScrapeRunResponse,
   ScrapeRunStatus,
@@ -25,7 +26,7 @@ import type {
 
 export default function ScrapingPage() {
   // ---- Form state ----
-  const [source, setSource] = useState<"facebook" | "foodpanda" | "blog">("facebook")
+  const [source, setSource] = useState<"facebook" | "foodpanda">("facebook")
   const [url, setUrl] = useState("")
   const [entityName, setEntityName] = useState("")
   const [maxPosts, setMaxPosts] = useState(10)
@@ -36,13 +37,20 @@ export default function ScrapingPage() {
   // ---- Cookie status (Facebook) ----
   const [cookies, setCookies] = useState<CookieStatus | null>(null)
 
+  // ---- Cookie upload ----
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+
   // ---- Running job polling ----
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [activeStatus, setActiveStatus] = useState<ScrapeRunStatus | null>(null)
 
   // ---- History ----
-  const [history, setHistory] = useState<ScrapeRunHistory[]>([])
-  const [loadingHistory, setLoadingHistory] = useState(true)
+  const {
+    data: history = [],
+    loading: loadingHistory,
+    refetch: fetchHistory,
+  } = useApi<ScrapeRunHistory[]>("/api/scraping/history?limit=20")
 
   // Fetch cookie status on mount (and when source changes to facebook)
   useEffect(() => {
@@ -50,23 +58,6 @@ export default function ScrapingPage() {
       api.get<CookieStatus>("/api/scraping/cookies").then(setCookies).catch(() => {})
     }
   }, [source])
-
-  // Fetch scrape history
-  const fetchHistory = useCallback(async () => {
-    setLoadingHistory(true)
-    try {
-      const data = await api.get<ScrapeRunHistory[]>("/api/scraping/history?limit=20")
-      setHistory(data)
-    } catch {
-      // silently ignore
-    } finally {
-      setLoadingHistory(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    fetchHistory()
-  }, [fetchHistory])
 
   // Poll active run status every 3 seconds
   useEffect(() => {
@@ -91,6 +82,31 @@ export default function ScrapingPage() {
 
     return () => clearInterval(interval)
   }, [activeRunId, fetchHistory])
+
+  // ---- Cookie upload handler ----
+  async function handleUploadCookies(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setUploading(true)
+    setUploadError(null)
+
+    const formData = new FormData()
+    formData.append("file", file)
+
+    try {
+      const status = await api.upload<CookieStatus>(
+        "/api/scraping/cookies",
+        formData
+      )
+      setCookies(status)
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed")
+    } finally {
+      setUploading(false)
+      if (event.target) event.target.value = ""
+    }
+  }
 
   // ---- Submit handler ----
   async function handleStartScrape() {
@@ -147,7 +163,7 @@ export default function ScrapingPage() {
           <div className="space-y-2">
             <Label>Source</Label>
             <div className="flex gap-2">
-              {(["facebook", "foodpanda", "blog"] as const).map((s) => (
+              {(["facebook", "foodpanda"] as const).map((s) => (
                 <Button
                   key={s}
                   variant={source === s ? "default" : "outline"}
@@ -166,10 +182,37 @@ export default function ScrapingPage() {
               <span className="text-muted-foreground">Cookies:</span>
               {cookies.valid ? (
                 <Badge className="bg-green-100 text-green-800">
-                  Valid — expires {cookies.expires_at?.slice(0, 10)}
+                  {cookies.expires_at
+                    ? `Valid — expires ${cookies.expires_at.slice(0, 10)}`
+                    : "Valid"}
                 </Badge>
               ) : (
                 <Badge className="bg-red-100 text-red-800">{cookies.message}</Badge>
+              )}
+            </div>
+          )}
+
+          {/* Cookie upload (Facebook only) */}
+          {source === "facebook" && (
+            <div className="flex items-center gap-2">
+              <input
+                type="file"
+                id="cookie-upload"
+                accept=".json"
+                onChange={handleUploadCookies}
+                className="hidden"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => document.getElementById("cookie-upload")?.click()}
+                disabled={uploading}
+              >
+                {uploading ? "Uploading..." : "Upload cookies.json"}
+              </Button>
+              {uploadError && (
+                <p className="text-sm text-red-600">{uploadError}</p>
               )}
             </div>
           )}
@@ -182,9 +225,7 @@ export default function ScrapingPage() {
               placeholder={
                 source === "facebook"
                   ? "https://www.facebook.com/YourPage"
-                  : source === "foodpanda"
-                  ? "https://www.foodpanda.com.mm/restaurant/..."
-                  : "https://example.com/blog-article"
+                  : "https://www.foodpanda.com.mm/restaurant/..."
               }
               value={url}
               onChange={(e) => setUrl(e.target.value)}
@@ -265,6 +306,11 @@ export default function ScrapingPage() {
                   <span className="font-medium">Status:</span>{" "}
                   {statusBadge(activeStatus.status)}
                 </p>
+                {activeStatus.etl_run_id && activeStatus.status === "completed" && (
+                  <p className="text-muted-foreground">
+                    ✓ ETL pipeline started automatically — data will appear on dashboard shortly.
+                  </p>
+                )}
                 {activeStatus.error && (
                   <p className="text-red-600">{activeStatus.error}</p>
                 )}

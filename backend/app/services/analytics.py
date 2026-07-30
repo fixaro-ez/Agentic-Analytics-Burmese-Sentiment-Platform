@@ -3,6 +3,8 @@ from __future__ import annotations
 from ..database import get_pool
 from ..models.analytics import (
     AspectBreakdown,
+    EntityAspectItem,
+    EntityReview,
     EntitySentimentOverview,
     FacebookEngagement,
     SentimentOverview,
@@ -62,7 +64,8 @@ async def get_aspect_breakdown() -> list[AspectBreakdown]:
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT * FROM v_aspect_breakdown ORDER BY aspect, count DESC"
+            "SELECT * FROM v_aspect_breakdown "
+            "ORDER BY aspect_category, count DESC"
         )
     return [
         AspectBreakdown(
@@ -83,10 +86,11 @@ async def get_sentiment_trends(
         if entity_id is not None:
             rows = await conn.fetch(
                 "SELECT * FROM v_sentiment_daily_trends "
-                "WHERE entity_id = $1 AND feedback_date >= CURRENT_DATE - $2::INTERVAL "
+                "WHERE entity_id = $1 "
+                "AND feedback_date >= CURRENT_DATE - ($2 * INTERVAL '1 day') "
                 "ORDER BY feedback_date",
                 entity_id,
-                f"{days} days",
+                days,
             )
         else:
             rows = await conn.fetch(
@@ -98,9 +102,9 @@ async def get_sentiment_trends(
                 "  SUM(neutral_count)::int AS neutral_count, "
                 "  ROUND(SUM(positive_count)::NUMERIC / NULLIF(SUM(total_reviews), 0), 4) AS positive_ratio "
                 "FROM v_sentiment_daily_trends "
-                "WHERE feedback_date >= CURRENT_DATE - $1::INTERVAL "
+                "WHERE feedback_date >= CURRENT_DATE - ($1 * INTERVAL '1 day') "
                 "GROUP BY feedback_date ORDER BY feedback_date",
-                f"{days} days",
+                days,
             )
     return [
         SentimentTrendPoint(
@@ -133,6 +137,55 @@ async def get_facebook_engagement() -> list[FacebookEngagement]:
             total_comments=r["total_comments"],
             avg_positivity_ratio=float(r["avg_positivity_ratio"]) if r["avg_positivity_ratio"] else None,
             avg_negativity_ratio=float(r["avg_negativity_ratio"]) if r["avg_negativity_ratio"] else None,
+        )
+        for r in rows
+    ]
+
+
+async def get_entity_aspect_summary(entity_id: int) -> list[EntityAspectItem]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT aspect_category, sentiment_label, count "
+            "FROM v_entity_aspect_summary "
+            "WHERE entity_id = $1 "
+            "ORDER BY aspect_category, count DESC",
+            entity_id,
+        )
+    return [
+        EntityAspectItem(
+            aspect_category=r["aspect_category"],
+            sentiment_label=r["sentiment_label"],
+            count=r["count"],
+        )
+        for r in rows
+    ]
+
+
+async def get_entity_reviews(entity_id: int, limit: int = 20) -> list[EntityReview]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT "
+            "  raw_text AS review_text, "
+            "  sentiment_label, "
+            "  confidence_score, "
+            "  aspect_category, "
+            "  feedback_timestamp AS created_at "
+            "FROM fact_review_absa_results "
+            "WHERE entity_id = $1 "
+            "ORDER BY feedback_timestamp DESC NULLS LAST, result_id DESC "
+            "LIMIT $2",
+            entity_id,
+            limit,
+        )
+    return [
+        EntityReview(
+            review_text=r["review_text"],
+            sentiment_label=r["sentiment_label"],
+            confidence_score=float(r["confidence_score"]) if r["confidence_score"] else None,
+            aspect_category=r["aspect_category"],
+            created_at=str(r["created_at"]) if r["created_at"] else None,
         )
         for r in rows
     ]

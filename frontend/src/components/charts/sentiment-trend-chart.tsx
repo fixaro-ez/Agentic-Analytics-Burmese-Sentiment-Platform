@@ -43,8 +43,14 @@ export function SentimentTrendChart({ data, loading }: SentimentTrendChartProps)
   }
 
   return (
-    <ResponsiveContainer width="100%" height={256}>
-      <AreaChart data={data} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+    <div className="h-64 min-w-0 w-full overflow-hidden">
+    <ResponsiveContainer
+      width="100%"
+      height="100%"
+      minWidth={0}
+      initialDimension={{ width: 600, height: 256 }}
+    >
+      <AreaChart data={data} margin={{ top: 5, right: 20, bottom: 5, left: 0 }} role="img" aria-label="Daily positive, neutral, and negative sentiment counts">
         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
         <XAxis
           dataKey="date"
@@ -80,5 +86,6 @@ export function SentimentTrendChart({ data, loading }: SentimentTrendChartProps)
         />
       </AreaChart>
     </ResponsiveContainer>
+    </div>
   )
 }
