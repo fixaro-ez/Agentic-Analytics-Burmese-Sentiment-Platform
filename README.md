@@ -131,7 +131,7 @@ Selenium/
 
 ## Prerequisites
 
-- **Python 3.10+** with a virtual environment (`.venv`)
+- **Python 3.11.x recommended** with a virtual environment (`.venv`). Python 3.10+ is supported; Python 3.14 is not recommended because PyTorch and some NLP dependencies may not provide compatible wheels yet.
 - **Node.js 20+** for the frontend
 - **MongoDB Atlas** (the application database; Docker is optional for local-only MongoDB)
 - **Playwright browsers**: `playwright install chromium`
@@ -164,7 +164,7 @@ Supabase secrets, or `cookies.json` in the ZIP file.
 # Apply init_db.sql, then migrations in migrations/ in order, then views.sql
 
 # 2. Create and activate the root Python environment
-python -m venv .venv
+py -3.11 -m venv .venv
 .venv\Scripts\Activate.ps1
 
 # 3. Install the complete Python environment
