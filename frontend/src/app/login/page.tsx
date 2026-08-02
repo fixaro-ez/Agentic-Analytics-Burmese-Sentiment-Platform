@@ -9,10 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { useToast } from "@/components/ui/toast"
-
-function validateEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-}
+import { validateEmail } from "@/lib/auth-validation"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -97,7 +94,9 @@ export default function LoginPage() {
       return
     }
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email)
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+    })
 
     if (error) {
       toast({
@@ -134,6 +133,7 @@ export default function LoginPage() {
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
+                name="email"
                 type="email"
                 placeholder="you@example.com"
                 value={email}
@@ -147,17 +147,23 @@ export default function LoginPage() {
               <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
+                name="password"
                 type="password"
                 placeholder="Your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
+                minLength={6}
                 required
               />
             </div>
 
             {error && (
-              <p className={`text-sm ${error.includes("Check your email") ? "text-emerald-600" : "text-destructive"}`}>
+              <p
+                role={error.includes("Check your email") ? "status" : "alert"}
+                aria-live="polite"
+                className={`text-sm ${error.includes("Check your email") ? "text-sentiment-positive-foreground" : "text-destructive"}`}
+              >
                 {error}
               </p>
             )}

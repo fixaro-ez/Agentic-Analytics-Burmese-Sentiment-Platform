@@ -158,18 +158,18 @@ The route should send the query and show loading, response, or actionable error 
 
 ---
 
-### ISSUE-005: Alerts and Data Mining expose developer TODO placeholders
+### ISSUE-005: Data Mining exposes developer TODO placeholders
 
 | Field | Value |
 |-------|-------|
 | **Severity** | high |
 | **Category** | functional / content |
-| **URL** | http://localhost:3000/alerts and http://localhost:3000/mining |
+| **URL** | http://localhost:3000/mining |
 | **Repro Video** | N/A — visible on load |
 
 **Description**
 
-Two primary sidebar destinations are not implemented. **Alerts** displays internal assignment notes for “Member 5,” API endpoints, field names, and intended controls. **Data Mining** displays equivalent notes for “Member 3.” Both routes look like available product features in navigation but contain no usable functionality.
+The Data Mining sidebar destination displays internal assignment notes for “Member 3.” The route looks like an available product feature in navigation but contains no usable functionality.
 
 **Expected**
 
@@ -177,11 +177,7 @@ Implement the routes, remove them from production navigation, or replace them wi
 
 **Repro Steps**
 
-1. Select **Alerts** from the sidebar and observe raw TODO/API implementation notes.
-
-   ![Alerts TODO state](screenshots/alerts.png)
-
-2. Select **Data Mining** and observe another raw TODO implementation state.
+1. Select **Data Mining** and observe the raw TODO implementation state.
 
    ![Data Mining TODO state](screenshots/mining.png)
 

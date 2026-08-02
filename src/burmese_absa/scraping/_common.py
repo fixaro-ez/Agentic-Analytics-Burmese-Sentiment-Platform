@@ -258,6 +258,13 @@ def parse_foodpanda_relative_time(raw_time_str, scrape_time=None):
     s = (raw_time_str or '').strip().lower()
     if not s:
         return scrape_time.strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        absolute = datetime.fromisoformat(
+            str(raw_time_str).strip().replace('Z', '+00:00')
+        )
+        return absolute.replace(tzinfo=None).strftime('%Y-%m-%d %H:%M:%S')
+    except ValueError:
+        pass
     # "just now", "today"
     if s in ('just now', 'today'):
         return scrape_time.strftime('%Y-%m-%d %H:%M:%S')

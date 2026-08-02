@@ -139,6 +139,59 @@ class FoodpandaUnitTests(unittest.TestCase):
         self.assertTrue(scraping.is_real_foodpanda_review(
             {'text': 'Tasty', 'author': 'Lin', 'date': '2 days ago', 'rating': 4}, source='api'))
 
+    def test_current_reviews_api_schema_is_normalized(self):
+        record = foodpanda.normalize_foodpanda_record({
+            'uuid': 'review-1',
+            'createdAt': '2026-07-31T05:01:46Z',
+            'text': 'all good',
+            'reviewerName': 'LIAM',
+            'ratings': [{'topic': 'overall', 'score': 5}],
+        })
+        self.assertEqual(record, {
+            'id': 'review-1',
+            'author': 'LIAM',
+            'date': '2026-07-31T05:01:46Z',
+            'rating': 5,
+            'text': 'all good',
+        })
+        self.assertTrue(foodpanda.is_real_foodpanda_review(record, source='api'))
+
+    def test_structured_reviews_api_avoids_browser_page(self):
+        page_url = (
+            'https://www.foodpanda.com.mm/en/restaurant/'
+            't5hg/kfc-south-okkala/reviews'
+        )
+        payloads = [
+            {'data': {
+                'vendorCode': 't5hg',
+                'reviewNumber': 1,
+                'rating': 4.9,
+                'vendorName': 'KFC (South Okkala)',
+            }},
+            {'data': [{
+                'uuid': 'review-1',
+                'createdAt': '2026-07-31T05:01:46Z',
+                'text': 'all good',
+                'reviewerName': 'LIAM',
+                'ratings': [{'topic': 'overall', 'score': 5}],
+            }], 'pageKey': None},
+        ]
+        with unittest.mock.patch.object(
+            foodpanda, '_foodpanda_api_json', side_effect=payloads
+        ):
+            result = foodpanda.scrape_foodpanda_reviews_api(
+                page_url, 'KFC (South Okkala)'
+            )
+        self.assertEqual(result['overall_rating'], 4.9)
+        self.assertEqual(len(result['feedbacks']), 1)
+        self.assertEqual(
+            result['review_diagnostics']['strategy'], 'reviews-api'
+        )
+        self.assertEqual(
+            result['feedbacks'][0]['timestamp'], '2026-07-31 05:01:46'
+        )
+        self.assertFalse(result['review_diagnostics']['truncated'])
+
     def test_legacy_fallback_not_used(self):
         stats = {}
         page = DomPage(cards=[], modal_open=True)
@@ -189,7 +242,7 @@ class FoodpandaUnitTests(unittest.TestCase):
 
     def test_empty_scrape_diagnostics_and_listener_cleanup(self):
         page = MagicMock()
-        page.url = 'https://x/shop/empty'
+        page.url = 'https://www.foodpanda.com.mm/restaurant/a1b2/empty'
         page.title.return_value = 'Empty | foodpanda'
         page.locator.return_value = FakeLocator()
         with unittest.mock.patch.object(foodpanda, 'is_foodpanda_modal_open', return_value=False), \
@@ -200,6 +253,82 @@ class FoodpandaUnitTests(unittest.TestCase):
         self.assertEqual(result['review_diagnostics']['strategy'], 'dom-first')
         self.assertEqual(result['review_diagnostics']['pagination']['termination_reason'], 'end_of_list')
         page.remove_listener.assert_called_once()
+
+    def test_invalid_restaurant_url_is_rejected_before_persistence(self):
+        page = MagicMock()
+        invalid_url = (
+            'https://www.foodpanda.com.mm/restaurant/'
+            'abcd1234-lotteria-junction-city'
+        )
+        with self.assertRaisesRegex(ValueError, 'must be a restaurant page'):
+            scraping.scrape_foodpanda_reviews(page, invalid_url, 'Lotteria')
+        self.assertEqual(scraping.session_data, [])
+        page.goto.assert_not_called()
+
+    def test_access_denied_page_is_rejected_before_persistence(self):
+        page = MagicMock()
+        page.url = 'https://www.foodpanda.com.mm/restaurant/a1b2/example-shop'
+        page.title.return_value = 'Access to this page has been denied'
+        with self.assertRaisesRegex(RuntimeError, 'did not provide a restaurant page'):
+            scraping.scrape_foodpanda_reviews(page, page.url, 'Example Shop')
+        self.assertEqual(scraping.session_data, [])
+        page.remove_listener.assert_called_once()
+
+    def test_http_403_is_allowed_when_restaurant_data_rendered(self):
+        page = MagicMock()
+        page.url = 'https://www.foodpanda.com.mm/restaurant/a1b2/example-shop'
+        page.title.return_value = 'Example Shop | foodpanda'
+        page.goto.return_value.status = 403
+        with unittest.mock.patch.object(
+            foodpanda, 'dismiss_foodpanda_overlays',
+            return_value={'actions': 0, 'blocker_remaining': False},
+        ), unittest.mock.patch.object(
+            foodpanda, 'open_foodpanda_review_surface',
+            return_value={'found': True, 'opened': True, 'modal_opened': True},
+        ), unittest.mock.patch.object(
+            foodpanda, 'extract_foodpanda_overall_rating', return_value=4.9,
+        ), unittest.mock.patch.object(
+            foodpanda, 'exhaust_foodpanda_reviews',
+            return_value={
+                'steps': 1, 'termination_reason': 'end_of_list',
+                'last_action': 'none', 'scroll_method': 'none',
+            },
+        ):
+            result = scraping.scrape_foodpanda_reviews(
+                page, page.url, 'Example Shop'
+            )
+        self.assertEqual(result['overall_rating'], 4.9)
+        self.assertEqual(result['review_diagnostics']['navigation_status'], 403)
+        self.assertEqual(len(scraping.session_data), 1)
+
+    def test_http_error_without_restaurant_evidence_is_rejected(self):
+        page = MagicMock()
+        page.url = 'https://www.foodpanda.com.mm/restaurant/a1b2/missing-shop'
+        page.title.return_value = 'Food delivery | foodpanda'
+        page.goto.return_value.status = 404
+        page.locator.return_value = FakeLocator()
+        with unittest.mock.patch.object(
+            foodpanda, 'dismiss_foodpanda_overlays',
+            return_value={'actions': 0, 'blocker_remaining': False},
+        ), unittest.mock.patch.object(
+            foodpanda, 'open_foodpanda_review_surface',
+            return_value={'found': False, 'opened': False, 'modal_opened': False},
+        ), unittest.mock.patch.object(
+            foodpanda, 'extract_foodpanda_overall_rating', return_value=None,
+        ), unittest.mock.patch.object(
+            foodpanda, 'exhaust_foodpanda_reviews',
+            return_value={
+                'steps': 1, 'termination_reason': 'end_of_list',
+                'last_action': 'none', 'scroll_method': 'none',
+            },
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, 'contained no verifiable restaurant'
+            ):
+                scraping.scrape_foodpanda_reviews(
+                    page, page.url, 'Missing Shop'
+                )
+        self.assertEqual(scraping.session_data, [])
 
     def test_pagination_safety_limit(self):
         page = MagicMock()

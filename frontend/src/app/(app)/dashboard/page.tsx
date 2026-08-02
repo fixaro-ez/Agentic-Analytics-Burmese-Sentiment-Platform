@@ -1,7 +1,22 @@
 "use client"
 
+import { useMemo } from "react"
 import { useRouter } from "next/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { AspectBreakdownPanel } from "@/components/dashboard/aspect-breakdown-panel"
+import { AspectRadarPanel } from "@/components/dashboard/aspect-radar-panel"
+import { KpiStrip } from "@/components/dashboard/kpi-strip"
+import { PinnedChatInsights } from "@/components/dashboard/pinned-chat-insights"
+import { SocialEngagementPanel } from "@/components/dashboard/social-engagement-panel"
+import { TopDriversPanel } from "@/components/dashboard/top-drivers-panel"
+import { SentimentTrendChart } from "@/components/charts/sentiment-trend-chart"
+import { DataError } from "@/components/data-error"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -11,250 +26,210 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { SentimentTrendChart } from "@/components/charts/sentiment-trend-chart"
-import { DataError } from "@/components/data-error"
 import {
-  useSentimentOverview,
   useEntitySentiments,
-  useAspectBreakdown,
-  useSentimentTrends,
+  useSentimentTrendsFiltered,
 } from "@/hooks/use-analytics"
-import { ASPECT_LABELS } from "@/lib/types"
+import { myanmarLangProps } from "@/lib/myanmar"
+import { useFilterStore } from "@/lib/stores/filters"
 
 export default function DashboardPage() {
-  const {
-    data: overview,
-    loading: loadingOverview,
-    error: overviewError,
-    refetch: refetchOverview,
-  } = useSentimentOverview()
-  const {
-    data: entitiesData,
-    loading: loadingEntities,
-    error: entitiesError,
-    refetch: refetchEntities,
-  } = useEntitySentiments()
-  const {
-    data: aspectsData,
-    loading: loadingAspects,
-    error: aspectsError,
-    refetch: refetchAspects,
-  } = useAspectBreakdown()
-  const {
-    data: trendsData,
-    loading: loadingTrends,
-    error: trendsError,
-    refetch: refetchTrends,
-  } = useSentimentTrends()
   const router = useRouter()
+  const entityId = useFilterStore((state) => state.entityId)
+  const days = useFilterStore((state) => state.days)
+  const setEntity = useFilterStore((state) => state.setEntity)
+
+  const trends = useSentimentTrendsFiltered(entityId ?? undefined, days)
+  const entities = useEntitySentiments()
+
+  const visibleEntities = useMemo(() => {
+    const rows = entities.data?.entities ?? []
+    return entityId != null
+      ? rows.filter((entity) => entity.entity_id === entityId)
+      : rows
+  }, [entities.data, entityId])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
         <p className="text-muted-foreground">
-          Overview of Burmese sentiment analytics across all entities.
+          Sentiment, aspect, and engagement signals for the active entity and
+          date filters.
         </p>
       </div>
 
-      {overviewError && (
-        <DataError message={overviewError} onRetry={refetchOverview} />
-      )}
+      <KpiStrip />
+      <PinnedChatInsights />
 
-      {/* ---- KPI Cards ---- */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Total Reviews</CardDescription>
-            {loadingOverview ? (
-              <Skeleton className="h-8 w-20" />
-            ) : (
-              <CardTitle className="text-2xl">
-                {overview?.total_reviews?.toLocaleString() ?? "—"}
-              </CardTitle>
-            )}
-          </CardHeader>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Positive Ratio</CardDescription>
-            {loadingOverview ? (
-              <Skeleton className="h-8 w-20" />
-            ) : (
-              <CardTitle className="text-2xl text-green-600">
-                {overview?.positive_ratio != null
-                  ? `${(overview.positive_ratio * 100).toFixed(1)}%`
-                  : "—"}
-              </CardTitle>
-            )}
-          </CardHeader>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Negative Ratio</CardDescription>
-            {loadingOverview ? (
-              <Skeleton className="h-8 w-20" />
-            ) : (
-              <CardTitle className="text-2xl text-red-600">
-                {overview?.negative_ratio != null
-                  ? `${(overview.negative_ratio * 100).toFixed(1)}%`
-                  : "—"}
-              </CardTitle>
-            )}
-          </CardHeader>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Avg Confidence</CardDescription>
-            {loadingOverview ? (
-              <Skeleton className="h-8 w-20" />
-            ) : (
-              <CardTitle className="text-2xl">
-                {overview?.avg_confidence != null
-                  ? `${(overview.avg_confidence * 100).toFixed(1)}%`
-                  : "—"}
-              </CardTitle>
-            )}
-          </CardHeader>
-        </Card>
-      </div>
-
-      {/* ---- Charts Row ---- */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.85fr)_minmax(320px,1fr)]">
+        <Card id="panel-trends" className="min-w-0 scroll-mt-36">
           <CardHeader>
-            <CardTitle>Sentiment Trend</CardTitle>
-            <CardDescription>Daily sentiment counts over time</CardDescription>
+            <CardTitle>Weekly sentiment balance</CardTitle>
+            <CardDescription>
+              Positive and neutral above zero; negative below
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            {trendsError ? (
-              <DataError message={trendsError} onRetry={refetchTrends} />
+          <CardContent className="min-w-0">
+            {trends.error ? (
+              <DataError message={trends.error} onRetry={trends.refetch} />
             ) : (
               <SentimentTrendChart
-                data={trendsData?.trends ?? []}
-                loading={loadingTrends}
+                data={trends.data?.trends ?? []}
+                loading={trends.loading}
               />
             )}
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
-            <CardTitle>Aspect Breakdown</CardTitle>
-            <CardDescription>Sentiment distribution across ABSA aspects</CardDescription>
+            <CardTitle>Aspect health radar</CardTitle>
+            <CardDescription>
+              Six ABSA dimensions with optional entity comparison
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            {aspectsError ? (
-              <DataError message={aspectsError} onRetry={refetchAspects} />
-            ) : loadingAspects ? (
-              <div className="space-y-2">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <Skeleton key={i} className="h-6 w-full" />
-                ))}
-              </div>
-            ) : aspectsData?.aspects && aspectsData.aspects.length > 0 ? (
-              <div className="space-y-3">
-                {(() => {
-                  const maxCount = Math.max(...aspectsData.aspects.map((a) => a.count), 1)
-                  return aspectsData.aspects.map((a) => (
-                  <div key={`${a.aspect}-${a.sentiment}`} className="flex items-center gap-3">
-                    <span className="w-48 truncate text-sm" title={ASPECT_LABELS[a.aspect] ?? a.aspect}>
-                      {ASPECT_LABELS[a.aspect] ?? a.aspect}
-                    </span>
-                    <span
-                      className={`inline-block h-3 rounded ${
-                        a.sentiment.toLowerCase() === "positive"
-                          ? "bg-green-500 dark:bg-green-600"
-                          : a.sentiment.toLowerCase() === "negative"
-                          ? "bg-red-500 dark:bg-red-600"
-                          : "bg-yellow-400 dark:bg-yellow-500"
-                      }`}
-                      style={{ width: `${(a.count / maxCount) * 200}px` }}
-                    />
-                    <span className="text-xs text-muted-foreground">
-                      {a.sentiment} ({a.count})
-                    </span>
-                  </div>
-                  ))
-                })()}
-              </div>
-            ) : (
-              <div className="flex h-64 items-center justify-center rounded-md border border-dashed">
-                <p className="text-sm text-muted-foreground">No aspect data available</p>
-              </div>
-            )}
+          <CardContent className="min-w-0">
+            <AspectRadarPanel />
           </CardContent>
         </Card>
       </div>
 
-      {/* ---- Entity Performance Table ---- */}
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.85fr)_minmax(320px,1fr)]">
+        <Card id="panel-aspects" className="min-w-0 scroll-mt-36">
+          <CardHeader>
+            <CardTitle>Aspect sentiment mix</CardTitle>
+            <CardDescription>
+              Compare percentages; select an aspect to filter reviews
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="min-w-0">
+            <AspectBreakdownPanel />
+          </CardContent>
+        </Card>
+
+        <Card className="min-w-0">
+          <CardHeader>
+            <CardTitle>Top drivers</CardTitle>
+            <CardDescription>
+              Negative-weighted aspects and recently flagged feedback
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TopDriversPanel />
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card id="panel-engagement" className="min-w-0 scroll-mt-36">
+        <CardHeader>
+          <CardTitle>Social engagement</CardTitle>
+          <CardDescription>
+            Facebook reaction mix and positivity, negativity, and haha ratios
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="min-w-0">
+          <SocialEngagementPanel />
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
-          <CardTitle>Entity Performance</CardTitle>
-          <CardDescription>Sentiment overview per entity</CardDescription>
+          <CardTitle>Entity performance</CardTitle>
+          <CardDescription>
+            Active entity, or all entities when no entity filter is set
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          {entitiesError ? (
-            <DataError message={entitiesError} onRetry={refetchEntities} />
-          ) : loadingEntities ? (
+          {entities.error ? (
+            <DataError message={entities.error} onRetry={entities.refetch} />
+          ) : entities.loading ? (
             <div className="space-y-2">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
+              {Array.from({ length: 3 }).map((_, index) => (
+                <Skeleton key={index} className="h-10 w-full" />
               ))}
             </div>
-          ) : entitiesData?.entities && entitiesData.entities.length > 0 ? (
+          ) : visibleEntities.length ? (
             <div className="overflow-x-auto">
               <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Entity</TableHead>
-                  <TableHead>Platform</TableHead>
-                  <TableHead className="text-right">Reviews</TableHead>
-                  <TableHead className="text-right">Positive</TableHead>
-                  <TableHead className="text-right">Negative</TableHead>
-                  <TableHead className="text-right">Positive %</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {entitiesData.entities.map((e) => (
-                  <TableRow
-                    key={e.entity_id}
-                    className="cursor-pointer"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => router.push(`/entities/${e.entity_id}`)}
-                    onKeyDown={(ev) => {
-                      if (ev.key === "Enter" || ev.key === " ") {
-                        ev.preventDefault()
-                        router.push(`/entities/${e.entity_id}`)
-                      }
-                    }}
-                  >
-                    <TableCell className="font-medium">{e.entity_name}</TableCell>
-                    <TableCell>{e.platform}</TableCell>
-                    <TableCell className="text-right">{e.total_reviews}</TableCell>
-                    <TableCell className="text-right">{e.positive_count}</TableCell>
-                    <TableCell className="text-right">{e.negative_count}</TableCell>
-                    <TableCell className="text-right">
-                      {e.positive_ratio != null
-                        ? `${(e.positive_ratio * 100).toFixed(1)}%`
-                        : "—"}
-                    </TableCell>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Entity</TableHead>
+                    <TableHead>Platform</TableHead>
+                    <TableHead className="text-right">Data</TableHead>
+                    <TableHead className="text-right">Engagement</TableHead>
+                    <TableHead className="text-right">Positive</TableHead>
+                    <TableHead className="text-right">Negative</TableHead>
+                    <TableHead className="text-right">Positive %</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {visibleEntities.map((entity) => (
+                    <TableRow
+                      key={entity.entity_id}
+                      className="cursor-pointer"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        setEntity(entity.entity_id)
+                        router.push(`/entities/${entity.entity_id}`)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault()
+                          setEntity(entity.entity_id)
+                          router.push(`/entities/${entity.entity_id}`)
+                        }
+                      }}
+                    >
+                      <TableCell
+                        className="font-medium"
+                        {...myanmarLangProps(entity.entity_name)}
+                      >
+                        {entity.entity_name}
+                      </TableCell>
+                      <TableCell>{entity.platform}</TableCell>
+                      <TableCell className="text-right">
+                        {entity.platform === "facebook"
+                          ? `${entity.total_posts.toLocaleString()} posts`
+                          : `${entity.total_reviews.toLocaleString()} reviews`}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {entity.platform === "facebook" &&
+                        entity.total_reactions != null
+                          ? `${entity.total_reactions.toLocaleString()} reactions`
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {entity.total_reviews > 0
+                          ? entity.positive_count.toLocaleString()
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {entity.total_reviews > 0
+                          ? entity.negative_count.toLocaleString()
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {entity.positive_ratio != null
+                          ? `${(entity.positive_ratio * 100).toFixed(1)}%`
+                          : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           ) : (
             <div className="flex h-48 items-center justify-center rounded-md border border-dashed">
-              <p className="text-sm text-muted-foreground">No entity data available</p>
+              <p className="text-sm text-muted-foreground">
+                No entity data matches the active filters.
+              </p>
             </div>
           )}
         </CardContent>
       </Card>
+
     </div>
   )
 }

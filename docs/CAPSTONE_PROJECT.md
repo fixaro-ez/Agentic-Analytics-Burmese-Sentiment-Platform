@@ -6,7 +6,7 @@
 
 This project is an end-to-end data pipeline and Agentic AI platform designed specifically to decode Burmese Sentiment within the Myanmar market. It extracts raw customer feedback from platforms like Facebook and Foodpanda and tackles the unique linguistic challenges of Myanmar (Unicode, legacy Zawgyi, and Burglish).
 
-By utilizing a custom Two-Stage Aspect-Based Sentiment Analysis (ABSA) model, the system classifies Burmese text, stores analytical data in a PostgreSQL Data Warehouse, and surfaces insights via a BI Dashboard featuring "Chat with Data" and AI-driven autonomous alerts.
+By utilizing a custom Two-Stage Aspect-Based Sentiment Analysis (ABSA) model, the system classifies Burmese text, stores analytical data in a PostgreSQL Data Warehouse, and surfaces insights via a BI Dashboard featuring "Chat with Data".
 
 ## 2. System Architecture
 
@@ -18,7 +18,7 @@ The architecture follows a modern ELT/ETL pipeline, leveraging both NoSQL and re
   - **Stage 1 ABSA:** Multi-label classification that detects six aspects, such as `customer_support` and `price_and_value`, in Burmese text.
   - **Stage 2 ABSA:** Sentence-pair classification that determines Positive, Negative, or Neutral sentiment for detected aspects.
 - **Data Warehouse (RDBMS):** Cleaned, sentiment-scored data is loaded into PostgreSQL using a Star Schema with fact and dimension tables optimized for OLAP.
-- **Presentation & Agentic Layer:** A React/Next.js frontend provides BI visualizations, while AI agents monitor the Data Warehouse for anomalies (for example, crisis alerts) and enable Text-to-SQL querying.
+- **Presentation & Agentic Layer:** A React/Next.js frontend provides BI visualizations and an AI-assisted Text-to-SQL workspace.
 
 ## 3. Academic Curriculum Mapping (15-Week Syllabus)
 
@@ -101,7 +101,6 @@ To ensure parallel development and equal contribution, the project is divided in
 **Tasks:**
 
 - Build a FastAPI backend to serve PostgreSQL sentiment data and Data Mining results to the frontend.
-- Develop AI agent monitors that run periodically to detect sentiment spikes—for example, negative Burmese comments triggering a PR crisis alert—and send notifications.
 - Implement the "Chat with Data" Text-to-SQL feature using LangChain and an LLM API.
 
 **Testing & QA:** Test API endpoints using Postman/PyTest and rigorously test Text-to-SQL against prompt injection and destructive queries using read-only access.
@@ -115,7 +114,6 @@ To ensure parallel development and equal contribution, the project is divided in
 **Tasks:**
 
 - Build the React/Next.js dashboard application.
-- Create the Agentic Inbox: a unified feed prioritizing high-risk and urgent Burmese feedback flagged by AI.
 - Build BI visualizations showing sentiment trends over time, aspect breakdowns, and clustering results using Recharts or Chart.js.
 - Integrate the "Chat with Data" user interface.
 
@@ -131,7 +129,7 @@ To ensure parallel development and equal contribution, the project is divided in
 | Phase 2: Core NLP & DW | Burmese Sentiment Models trained; PostgreSQL Star Schema deployed. | Members 2, 3 |
 | Phase 3: The Pipeline | ETL script connects MongoDB → Models → PostgreSQL successfully. | Member 3 |
 | Phase 4: Analytics | API backend deployed; Data Mining algorithms (Clustering/Apriori) executed. | Members 4, 5 |
-| Phase 5: Agentic UI | Frontend Dashboard live; Text-to-SQL working; Sentiment Alerts active. | Members 5, 6 |
+| Phase 5: AI-assisted UI | Frontend Dashboard live; Text-to-SQL working. | Members 5, 6 |
 | Phase 6: Final QA & Documentation | System-wide integration testing; final academic report compilation. | All Members |
 
 ## 6. Technology Stack

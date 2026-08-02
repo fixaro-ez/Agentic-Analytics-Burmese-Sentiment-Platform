@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -15,18 +15,28 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useEntitySentiments } from "@/hooks/use-analytics"
+import { myanmarLangProps } from "@/lib/myanmar"
+import { paginate } from "@/lib/pagination"
+import { BrandMappingSettings } from "@/components/analytics/brand-mapping-settings"
 
 type PlatformFilter = "all" | "facebook" | "foodpanda"
+const ENTITY_PAGE_SIZE = 5
 
 export default function EntitiesPage() {
   const { data, loading, error } = useEntitySentiments()
   const [filter, setFilter] = useState<PlatformFilter>("all")
-  const router = useRouter()
+  const [requestedPage, setRequestedPage] = useState(0)
 
   const entities = data?.entities ?? []
   const filtered = filter === "all"
     ? entities
     : entities.filter((e) => e.platform.toLowerCase() === filter)
+  const pagination = paginate(filtered, requestedPage, ENTITY_PAGE_SIZE)
+
+  const changeFilter = (nextFilter: PlatformFilter) => {
+    setFilter(nextFilter)
+    setRequestedPage(0)
+  }
 
   return (
     <div className="space-y-6">
@@ -49,7 +59,8 @@ export default function EntitiesPage() {
                 key={f}
                 variant={filter === f ? "default" : "outline"}
                 size="sm"
-                onClick={() => setFilter(f)}
+                aria-pressed={filter === f}
+                onClick={() => changeFilter(f)}
               >
                 {f === "all" ? "All" : f === "facebook" ? "Facebook" : "Foodpanda"}
               </Button>
@@ -73,39 +84,50 @@ export default function EntitiesPage() {
                 <TableRow>
                   <TableHead>Entity</TableHead>
                   <TableHead>Platform</TableHead>
-                  <TableHead className="text-right">Reviews</TableHead>
+                  <TableHead className="text-right">Data</TableHead>
+                  <TableHead className="text-right">Engagement</TableHead>
                   <TableHead className="text-right">Positive %</TableHead>
                   <TableHead className="text-right">Negative %</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((e) => (
+                {pagination.items.map((e) => (
                   <TableRow
                     key={e.entity_id}
-                    className="cursor-pointer"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => router.push(`/entities/${e.entity_id}`)}
-                    onKeyDown={(ev) => {
-                      if (ev.key === "Enter" || ev.key === " ") {
-                        ev.preventDefault()
-                        router.push(`/entities/${e.entity_id}`)
-                      }
-                    }}
+                    className="hover:bg-muted/40"
                   >
-                    <TableCell className="font-medium">{e.entity_name}</TableCell>
+                    <TableCell
+                      className="font-medium"
+                      {...myanmarLangProps(e.entity_name)}
+                    >
+                      <Link
+                        href={`/entities/${e.entity_id}`}
+                        className="inline-flex min-h-11 items-center text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {e.entity_name}
+                      </Link>
+                    </TableCell>
                     <TableCell>
                       <Badge variant={e.platform === "facebook" ? "default" : "secondary"}>
                         {e.platform}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">{e.total_reviews}</TableCell>
-                    <TableCell className="text-right text-green-600">
+                    <TableCell className="text-right">
+                      {e.platform === "facebook"
+                        ? `${e.total_posts.toLocaleString()} posts`
+                        : `${e.total_reviews.toLocaleString()} reviews`}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {e.platform === "facebook" && e.total_reactions != null
+                        ? `${e.total_reactions.toLocaleString()} reactions`
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="text-right text-sentiment-positive-foreground">
                       {e.positive_ratio != null
                         ? `${(e.positive_ratio * 100).toFixed(1)}%`
                         : "—"}
                     </TableCell>
-                    <TableCell className="text-right text-red-600">
+                    <TableCell className="text-right text-sentiment-negative-foreground">
                       {e.negative_ratio != null
                         ? `${(e.negative_ratio * 100).toFixed(1)}%`
                         : "—"}
@@ -114,6 +136,40 @@ export default function EntitiesPage() {
                 ))}
               </TableBody>
             </Table>
+
+              {pagination.pageCount > 1 && (
+                <nav
+                  aria-label="Entity pages"
+                  className="flex flex-wrap items-center justify-between gap-3 border-t pt-4"
+                >
+                  <p
+                    className="text-sm text-muted-foreground"
+                    aria-live="polite"
+                  >
+                    {pagination.rangeStart}{"\u2013"}{pagination.rangeEnd} of {pagination.total}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={pagination.page === 0}
+                      onClick={() => setRequestedPage(pagination.page - 1)}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={pagination.page >= pagination.pageCount - 1}
+                      onClick={() => setRequestedPage(pagination.page + 1)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </nav>
+              )}
             </div>
           ) : (
             <div className="flex h-48 items-center justify-center rounded-md border border-dashed">
@@ -124,6 +180,8 @@ export default function EntitiesPage() {
           )}
         </CardContent>
       </Card>
+
+      <BrandMappingSettings entities={entities} />
     </div>
   )
 }

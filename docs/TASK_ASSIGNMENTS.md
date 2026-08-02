@@ -53,7 +53,6 @@ Authorization: Bearer <supabase-jwt-token>
 | `/entities` | Shell (table placeholder) — Member C fills |
 | `/analytics` | Shell (chart placeholders) — Member D fills |
 | `/chat` | Shell (input + result placeholder) — Member B fills |
-| `/alerts` | Shell (list + config placeholder) |
 | `/scraping` | Wired with real API (source selector + polling + history) |
 | `/mining` | Shell (cards placeholder) |
 
@@ -529,5 +528,5 @@ Facebook/Foodpanda → Playwright → MongoDB → clean → ABSA → export → 
 ### Supabase Project
 - URL: `https://syatpftefackiarujypv.supabase.co`
 - Region: ap-northeast-2
-- pg_cron: installed, daily ETL + hourly alerts scheduled
-- Edge Functions: `trigger-etl`, `check-alerts` deployed
+- pg_cron: installed with daily ETL scheduling
+- Edge Functions: `trigger-etl` deployed

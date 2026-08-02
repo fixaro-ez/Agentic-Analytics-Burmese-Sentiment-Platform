@@ -1,5 +1,9 @@
+import json
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 from burmese_absa.scraping import (
     _count_info,
@@ -15,6 +19,18 @@ from burmese_absa.scraping import (
     _summary_total,
     compute_reaction_metrics,
     migrate_facebook_schema,
+)
+from burmese_absa.scraping.facebook import (
+    _aggregate_metric,
+    _detect_interruption,
+    _engagement_action_counts,
+    _facebook_interruption_message,
+    _metric_count_info,
+    _partial_reaction_payload,
+    _post_surface_score,
+    _reaction_count_info,
+    _totals_compatible,
+    _write_facebook_report,
 )
 
 
@@ -185,6 +201,31 @@ class ReactionParsingTests(unittest.TestCase):
         self.assertEqual(counts, {"like": 68, "love": 17})
         self.assertTrue(toolbar_exact)
 
+    def test_metric_parser_keeps_comment_and_share_numbers_separate(self):
+        label = "2.7K reactions 128 comments 201 shares"
+        self.assertEqual(_metric_count_info(label, "comments"), (128, True))
+        self.assertEqual(_metric_count_info(label, "shares"), (201, True))
+        self.assertEqual(_aggregate_metric([label], "comments"), 128)
+        self.assertEqual(_aggregate_metric([label], "shares"), 201)
+
+    def test_reaction_parser_ignores_numbers_not_attached_to_reaction(self):
+        label = "Like Comment 128 Share 201"
+        self.assertEqual(_reaction_count_info(label, "like"), (None, False))
+        counts, _ = _reaction_toolbar([label])
+        self.assertEqual(counts, {})
+
+    def test_compact_total_rejects_cross_contaminated_category_sum(self):
+        self.assertTrue(_totals_compatible(2715, 2700, False))
+        self.assertFalse(_totals_compatible(3330, 2700, False))
+        raw, contaminated = _partial_reaction_payload(
+            {"like": 2600, "love": 730}, 2700, False
+        )
+        self.assertTrue(contaminated)
+        self.assertEqual(raw["total"], 2700)
+        self.assertTrue(all(raw[key] is None for key in (
+            "like", "love", "care", "haha", "wow", "sad", "angry"
+        )))
+
     def test_summary_ignores_smaller_background_post_total(self):
         total, exact, _ = _summary_total(
             ["All reactions: 1", "All reactions: 87", "2 reactions; see who reacted"]
@@ -207,6 +248,120 @@ class ReactionParsingTests(unittest.TestCase):
         self.assertEqual(sum(counts.values()), 19)
         self.assertEqual(set(counts), {"like", "love", "care", "haha", "wow", "sad", "angry"})
         self.assertTrue(exact)
+
+
+class PostSurfaceCorrelationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reel_action_row_extracts_all_three_meta_counts(self):
+        surface = MagicMock()
+        surface.evaluate = AsyncMock(
+            return_value=[
+                {"kind": "reactions", "text": "2.7K"},
+                {"kind": "comments", "text": "128"},
+                {"kind": "shares", "text": "201"},
+            ]
+        )
+
+        counts = await _engagement_action_counts(surface)
+
+        self.assertEqual(counts["reactions"], (2700, False, "2.7K"))
+        self.assertEqual(counts["comments"], (128, True, "128"))
+        self.assertEqual(counts["shares"], (201, True, "201"))
+
+    async def test_hidden_exact_post_is_accepted_when_page_identity_matches(self):
+        platform_id = "pfbid123"
+        handle = MagicMock()
+        handle.is_visible = AsyncMock(return_value=False)
+        handle.evaluate = AsyncMock(
+            return_value={
+                "role": "dialog",
+                "tag": "DIV",
+                "text": "Lotteria Myanmar post content",
+                "hrefs": [f"https://facebook.com/posts/{platform_id}"],
+                "messages": 1,
+                "actions": ["Actions for this post by Lotteria Myanmar"],
+            }
+        )
+        candidate = MagicMock()
+        candidate.element_handle = AsyncMock(return_value=handle)
+
+        score = await _post_surface_score(
+            candidate, platform_id, "lotteriamyanmar"
+        )
+
+        self.assertGreaterEqual(score, 100)
+
+    async def test_hidden_background_post_is_rejected_when_identity_differs(self):
+        platform_id = "pfbid123"
+        handle = MagicMock()
+        handle.is_visible = AsyncMock(return_value=False)
+        handle.evaluate = AsyncMock(
+            return_value={
+                "role": "dialog",
+                "tag": "DIV",
+                "text": "Unrelated post",
+                "hrefs": [f"https://facebook.com/posts/{platform_id}"],
+                "messages": 1,
+                "actions": ["Actions for this post by nixCraft"],
+            }
+        )
+        candidate = MagicMock()
+        candidate.element_handle = AsyncMock(return_value=handle)
+
+        score = await _post_surface_score(
+            candidate, platform_id, "lotteriamyanmar"
+        )
+
+        self.assertEqual(score, -1)
+
+
+class FacebookInterruptionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_content_unavailable_page_is_detected(self):
+        body = MagicMock()
+        body.inner_text = AsyncMock(
+            return_value="This content isn't available at the moment"
+        )
+        page = MagicMock()
+        page.url = "https://www.facebook.com/Lotteria%20Myanmar"
+        page.locator.return_value = body
+
+        reason = await _detect_interruption(page)
+
+        self.assertEqual(reason, "unavailable")
+
+    def test_unavailable_message_identifies_url_problem(self):
+        message = _facebook_interruption_message(
+            "unavailable",
+            "https://www.facebook.com/Lotteria Myanmar",
+        )
+
+        self.assertIn("page is unavailable", message)
+        self.assertIn("do not contain spaces", message)
+        self.assertIn("LotteriaMyanmar", message)
+
+
+class FacebookReportTests(unittest.TestCase):
+    def test_current_failure_atomically_replaces_stale_success_report(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            report_path = Path(temporary_directory) / "facebook_run_report.json"
+            report_path.write_text(
+                json.dumps({"status": "completed", "saved": 3}),
+                encoding="utf-8",
+            )
+
+            _write_facebook_report(
+                str(report_path),
+                {
+                    "status": "failed",
+                    "saved": 0,
+                    "errors": ["Page unavailable"],
+                },
+            )
+
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "failed")
+            self.assertEqual(report["saved"], 0)
+            self.assertEqual(report["errors"], ["Page unavailable"])
+            self.assertFalse(report_path.with_suffix(".json.tmp").exists())
 
 
 class MigrationDryRunTests(unittest.TestCase):

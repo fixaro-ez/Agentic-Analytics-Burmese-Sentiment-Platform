@@ -1,11 +1,17 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useQuery, type UseQueryOptions } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 
 interface UseApiOptions<T> {
   initialData?: T
   skip?: boolean
+  /**
+   * Polling interval passthrough to TanStack Query. Accepts a number (ms),
+   * false, or a callback receiving the query — return false to stop polling
+   * (e.g. once a background job reaches a terminal status).
+   */
+  refetchInterval?: UseQueryOptions<T, Error>["refetchInterval"]
 }
 
 interface UseApiResult<T> {
@@ -15,62 +21,34 @@ interface UseApiResult<T> {
   refetch: () => void
 }
 
+/**
+ * Server-state hook backed by TanStack Query: response caching (shared
+ * across pages via the global QueryClient), stale-while-revalidate, and
+ * optional polling. Public API is unchanged from the previous hand-rolled
+ * implementation, so existing call sites keep working.
+ */
 export function useApi<T>(
   path: string,
   options: UseApiOptions<T> = {}
 ): UseApiResult<T> {
-  const { initialData, skip = false } = options
-  const [requestVersion, setRequestVersion] = useState(0)
-  const [state, setState] = useState<{
-    path: string
-    version: number
-    data: T | undefined
-    error: string | null
-  }>({
-    path,
-    version: -1,
-    data: initialData,
-    error: null,
+  const { initialData, skip = false, refetchInterval } = options
+
+  const query = useQuery<T, Error>({
+    queryKey: ["api", path],
+    queryFn: () => api.get<T>(path),
+    enabled: !skip,
+    initialData,
+    refetchInterval,
   })
 
-  useEffect(() => {
-    if (skip) return
-    let cancelled = false
-
-    api.get<T>(path).then(
-      (result) => {
-        if (!cancelled) {
-          setState({ path, version: requestVersion, data: result, error: null })
-        }
-      },
-      (err) => {
-        if (!cancelled) {
-          setState({
-            path,
-            version: requestVersion,
-            data: undefined,
-            error: err instanceof Error ? err.message : "Unknown error",
-          })
-        }
-      }
-    )
-
-    return () => {
-      cancelled = true
-    }
-  }, [path, requestVersion, skip])
-
-  const refetch = useCallback(() => {
-    setRequestVersion((version) => version + 1)
-  }, [])
-
-  const requestIsCurrent =
-    state.path === path && state.version === requestVersion
-
   return {
-    data: state.data,
-    loading: !skip && !requestIsCurrent,
-    error: requestIsCurrent ? state.error : null,
-    refetch,
+    data: query.data,
+    // Only "loading" when actually fetching the first page of data; skipped
+    // queries and background refetches with cached data are not loading.
+    loading: !skip && query.isPending,
+    error: query.error ? query.error.message : null,
+    refetch: () => {
+      void query.refetch()
+    },
   }
 }

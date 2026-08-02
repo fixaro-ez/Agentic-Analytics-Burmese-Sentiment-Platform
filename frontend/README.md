@@ -1,36 +1,84 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Burmese ABSA Analytics — Frontend
+
+Next.js 16 (React 19) dashboard for the Agentic Analytics & Burmese Sentiment Platform. Dark-first theme with semantic design tokens, Supabase Auth, and real-time data visualization.
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). Login with Supabase credentials.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Command | Description |
+|---|---|
+| `npm run dev` | Development server |
+| `npm run build` | Production build |
+| `npm run start` | Production server |
+| `npm run lint` | ESLint |
+| `npm run test:mining` | Mining visualization tests |
+| `npm run test:analytics` | Analytics helper tests |
+| `npm run test:scraping` | Scrape helper tests |
 
-## Learn More
+## Stack
 
-To learn more about Next.js, take a look at the following resources:
+- **Next.js 16** with App Router
+- **React 19**
+- **Tailwind CSS 4** with `@theme inline` design tokens
+- **shadcn/ui** (new-york style) in `src/components/ui/`
+- **Recharts** for all chart visualizations
+- **Zustand** for global filter state (entity, days, aspect); comparison is controlled within the relevant analysis panel
+- **TanStack Query** for server state with `useApi()` wrapper
+- **next-themes** for dark/light mode (dark default)
+- **Supabase Auth** (`@supabase/supabase-js` + `@supabase/ssr`)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Architecture
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+See `AGENTS.md` in this directory for frontend-specific agent instructions.
 
-## Deploy on Vercel
+- **Design tokens**: all sentiment/alert/entity/pipeline colors are CSS variables in `src/app/globals.css`, exposed as Tailwind utilities (`text-sentiment-positive`, `bg-alert-critical`, etc.)
+- **Dark mode**: `next-themes`, dark default, toggle in header. `<html>` has `suppressHydrationWarning`
+- **Burmese font**: Noto Sans Myanmar via `next/font/google`, auto-applied to `lang="my"` elements via `containsMyanmar()` / `myanmarLangProps()` from `src/lib/myanmar.ts`
+- **Global filters**: Zustand store in `src/lib/stores/filters.ts`, synced to URL params via `<FilterSync />`
+- **Server state**: TanStack Query, all fetching through `useApi()` in `src/hooks/use-api.ts`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Pages
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Route | Description |
+|---|---|
+| `/dashboard` | KPI strip, sentiment trends, aspect radar, aspect breakdown, social engagement, top drivers |
+| `/entities` | Entity list with platform filter, brand mapping settings |
+| `/entities/[id]` | Entity detail (KPIs, aspect breakdown, recent reviews) |
+| `/analytics` | Overview (trends, aspects, engagement) + Benchmark tab |
+| `/chat` | Chat with Data (streaming AI, inline charts, pinning, export) |
+| `/mining` | Association rules + entity clusters |
+| `/scraping` | Scrape control center (wizard, active jobs, history) |
+| `/login` | Supabase auth (sign in/up/forgot) |
+
+## Component Structure
+
+```
+src/components/
+├── analytics/    # Brand mapping and benchmark panels
+├── charts/       # Recharts: sentiment trends, aspect bars, engagement, radar, donuts
+├── chat/         # AI chat workspace (streaming, inline viz, pinning)
+├── dashboard/    # KPI strip, aspect radar, top drivers, social engagement
+├── etl/          # ETL health dialog
+├── layout/       # Sidebar, header, filter bar, filter sync
+├── mining/       # Association rules + entity clusters panels
+├── scraping/     # Scrape manager drawer
+├── ui/           # shadcn primitives (button, card, dialog, tabs, etc.)
+├── providers.tsx # TanStack Query + next-themes + toast providers
+├── data-error.tsx
+└── error-boundary.tsx
+```
+
+## Verification
+
+```bash
+npm run lint
+npm run build
+```

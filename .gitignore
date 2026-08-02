@@ -44,8 +44,9 @@ skills-lock.json
 # MongoDB data
 mongo_data/
 
-# Local model weights (3.2 GB, download from HuggingFace instead)
-models/
+# Local model weights (3.2 GB, download from HuggingFace instead).
+# Keep this root-scoped so backend/app/models remains version-controlled.
+/models/
 
 # Backend
 backend/.env

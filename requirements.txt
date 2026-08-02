@@ -1,0 +1,10 @@
+# Complete environment for the API, scraper, cleaning, ABSA, and export CLI.
+# Install from the repository root with: pip install -r requirements.txt
+-r backend/requirements.txt
+
+# Scraping and browser automation
+playwright>=1.50.0
+
+# Hugging Face ABSA inference
+torch>=2.2.0
+transformers>=4.57.0

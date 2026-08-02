@@ -9,8 +9,7 @@ import {
   BarChart3,
   Download,
   MessageSquare,
-  Bell,
-  Brain,
+  GitFork,
   LogOut,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -25,8 +24,7 @@ const navItems = [
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/scraping", label: "Scraping", icon: Download },
   { href: "/chat", label: "Chat with Data", icon: MessageSquare },
-  { href: "/alerts", label: "Alerts", icon: Bell },
-  { href: "/mining", label: "Data Mining", icon: Brain },
+  { href: "/mining", label: "Feedback Patterns", icon: GitFork },
 ]
 
 interface SidebarProps {
@@ -92,7 +90,8 @@ export function Sidebar({ open, onOpenChange }: SidebarProps) {
         <nav className="flex-1 space-y-1 px-2 py-4" aria-label="Main navigation">
           {navItems.map((item) => {
             const Icon = item.icon
-            const isActive = pathname === item.href || pathname?.startsWith(item.href + "/")
+            const isActive =
+              pathname === item.href || pathname?.startsWith(item.href + "/")
             return (
               <Link
                 key={item.href}
@@ -105,7 +104,7 @@ export function Sidebar({ open, onOpenChange }: SidebarProps) {
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 )}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-4 w-4" aria-hidden="true" />
                 {item.label}
               </Link>
             )

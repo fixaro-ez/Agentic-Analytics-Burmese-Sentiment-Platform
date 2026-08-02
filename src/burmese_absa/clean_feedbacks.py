@@ -19,6 +19,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
+import os
 import re
 import sys
 import unicodedata
@@ -26,6 +29,8 @@ from datetime import datetime
 from typing import Any
 
 from pymongo import MongoClient, UpdateOne
+
+from .mongo_config import MONGO_URI
 
 # Windows terminal encoding fix for Burmese output
 for _stream in (sys.stdout, sys.stderr):
@@ -37,7 +42,6 @@ for _stream in (sys.stdout, sys.stderr):
 # ==========================================
 # Configuration
 # ==========================================
-MONGO_URI = "mongodb://localhost:27017"
 DB_NAME = "feedback_analytics"
 
 CONTENTS_COLLECTION = "contents"
@@ -47,6 +51,25 @@ CLEANED_FEEDBACKS_COLLECTION = "cleaned_feedbacks"
 
 BATCH_SIZE = 500
 MIN_CLEAN_LENGTH = 3
+
+CONTENT_SOURCE_FIELDS = (
+    "title_or_post",
+    "entity_name",
+    "source_type",
+    "post_timestamp",
+    "reactions_breakdown",
+    "grouped_reactions",
+    "total_shares",
+    "total_comments",
+)
+FEEDBACK_SOURCE_FIELDS = (
+    "raw_text",
+    "content_id",
+    "entity_name",
+    "source_type",
+    "feedback_date",
+    "rating",
+)
 
 # ==========================================
 # Zawgyi Detection (simplified heuristic)
@@ -301,27 +324,72 @@ def clean_text(raw_text: str | None) -> dict[str, Any]:
 # MongoDB Operations
 # ==========================================
 
-def get_db():
+def get_db(mongo_uri: str | None = None):
     """Connect to MongoDB."""
     try:
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        resolved_uri = mongo_uri or MONGO_URI
+        client = MongoClient(resolved_uri, serverSelectionTimeoutMS=5000)
         client.admin.command('ping')
     except Exception as e:
-        print(f"[ERROR] MongoDB not reachable at {MONGO_URI}: {e}")
+        print(f"[ERROR] MongoDB not reachable at {mongo_uri or MONGO_URI}: {e}")
         print("[HINT] Start MongoDB first: docker-compose up -d")
         raise
     return client[DB_NAME]
 
 
+def _fingerprint_value(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=lambda item: item.isoformat()
+        if isinstance(item, datetime)
+        else str(item),
+    )
+
+
+def source_fingerprint(doc: dict[str, Any], fields: tuple[str, ...]) -> str:
+    """Fingerprint fields that affect the cleaned or exported representation."""
+    payload = {field: doc.get(field) for field in fields}
+    return hashlib.sha256(_fingerprint_value(payload).encode("utf-8")).hexdigest()
+
+
 def get_unprocessed_ids(original_col: str, cleaned_col: str, db) -> set[str]:
-    """Get _ids from original that don't exist in cleaned collection."""
-    original_ids = {
-        doc["_id"] for doc in db[original_col].find({}, {"_id": 1})
+    """
+    Return missing or stale source IDs.
+
+    Older cleaned documents have no ``source_fingerprint`` and are refreshed
+    once. This fixes the previous ID-only check, which never propagated edits
+    or engagement updates after the first cleaning pass.
+    """
+    field_map = {
+        CONTENTS_COLLECTION: CONTENT_SOURCE_FIELDS,
+        FEEDBACKS_COLLECTION: FEEDBACK_SOURCE_FIELDS,
     }
-    cleaned_ids = {
-        doc["_id"] for doc in db[cleaned_col].find({}, {"_id": 1})
+    fields = field_map.get(original_col)
+    if fields is None:
+        original_ids = {
+            doc["_id"] for doc in db[original_col].find({}, {"_id": 1})
+        }
+        cleaned_ids = {
+            doc["_id"] for doc in db[cleaned_col].find({}, {"_id": 1})
+        }
+        return original_ids - cleaned_ids
+
+    cleaned_fingerprints = {
+        doc["_id"]: doc.get("source_fingerprint")
+        for doc in db[cleaned_col].find(
+            {}, {"_id": 1, "source_fingerprint": 1}
+        )
     }
-    return original_ids - cleaned_ids
+    projection = {"_id": 1, **{field: 1 for field in fields}}
+    return {
+        doc["_id"]
+        for doc in db[original_col].find({}, projection)
+        if cleaned_fingerprints.get(doc["_id"])
+        != source_fingerprint(doc, fields)
+    }
 
 
 def process_contents(unprocessed_ids: set[str], db, dry_run: bool = False) -> dict[str, int]:
@@ -366,6 +434,9 @@ def process_contents(unprocessed_ids: set[str], db, dry_run: bool = False) -> di
             cleaned_doc = {
                 "_id": doc["_id"],
                 "source_id": doc["_id"],
+                "source_fingerprint": source_fingerprint(
+                    doc, CONTENT_SOURCE_FIELDS
+                ),
                 "entity_name": doc.get("entity_name", ""),
                 "platform": platform,
                 "post_timestamp": doc.get("post_timestamp"),
@@ -459,6 +530,9 @@ def process_feedbacks(unprocessed_ids: set[str], db, dry_run: bool = False) -> d
             cleaned_doc = {
                 "_id": doc["_id"],
                 "source_id": doc["_id"],
+                "source_fingerprint": source_fingerprint(
+                    doc, FEEDBACK_SOURCE_FIELDS
+                ),
                 "content_id": doc.get("content_id"),
                 "entity_name": doc.get("entity_name", ""),
                 "platform": platform,

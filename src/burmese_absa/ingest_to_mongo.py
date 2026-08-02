@@ -36,10 +36,11 @@ import os
 from datetime import datetime
 from pymongo import MongoClient, UpdateOne, ASCENDING, DESCENDING
 
+from .mongo_config import MONGO_URI
+
 # ==========================================
 # Configuration
 # ==========================================
-MONGO_URI = "mongodb://localhost:27017"
 DB_NAME = "feedback_analytics"
 CONTENTS_COLLECTION = "contents"
 FEEDBACKS_COLLECTION = "feedbacks"

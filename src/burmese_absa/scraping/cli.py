@@ -25,7 +25,16 @@ from .facebook import (
     migrate_facebook_schema,
     run_facebook_page_scrape,
 )
-from .foodpanda import scrape_business_blog, scrape_foodpanda_reviews
+from .foodpanda import (
+    scrape_business_blog,
+    scrape_foodpanda_reviews,
+    scrape_foodpanda_reviews_api,
+)
+from ._config import (
+    FOODPANDA_BROWSER_LOCALE,
+    FOODPANDA_BROWSER_TIMEZONE,
+    FOODPANDA_BROWSER_USER_AGENT,
+)
 from .lifecycle import get_db, save_session_data_to_mongo, show_tracking_status_db
 from .storage import export_to_json, session_data
 
@@ -85,18 +94,43 @@ def run_other_scrape(source, target_url, entity_name, headless=False):
     session_data.clear()
     client, db = get_db()
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=headless)
+        if source == 'foodpanda':
             try:
-                page = browser.new_page()
-                if source == 'foodpanda':
-                    scrape_foodpanda_reviews(page, target_url, entity_name)
-                elif source == 'blog':
-                    scrape_business_blog(page, target_url, entity_name)
-                else:
-                    raise ValueError(f'Unsupported source: {source}')
-            finally:
-                browser.close()
+                scrape_foodpanda_reviews_api(target_url, entity_name)
+            except Exception as api_exc:
+                print(
+                    "[WARN] Foodpanda reviews API failed; "
+                    f"falling back to browser extraction: {api_exc}"
+                )
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(headless=headless)
+                    context = browser.new_context(
+                        user_agent=FOODPANDA_BROWSER_USER_AGENT,
+                        locale=FOODPANDA_BROWSER_LOCALE,
+                        timezone_id=FOODPANDA_BROWSER_TIMEZONE,
+                        viewport={"width": 1440, "height": 1000},
+                        extra_http_headers={
+                            "Accept-Language": "en-US,en;q=0.9",
+                        },
+                    )
+                    try:
+                        scrape_foodpanda_reviews(
+                            context.new_page(), target_url, entity_name
+                        )
+                    finally:
+                        context.close()
+                        browser.close()
+        else:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=headless)
+                try:
+                    page = browser.new_page()
+                    if source == 'blog':
+                        scrape_business_blog(page, target_url, entity_name)
+                    else:
+                        raise ValueError(f'Unsupported source: {source}')
+                finally:
+                    browser.close()
         save_session_data_to_mongo(db)
         export_to_json(entity_name or source)
     finally:

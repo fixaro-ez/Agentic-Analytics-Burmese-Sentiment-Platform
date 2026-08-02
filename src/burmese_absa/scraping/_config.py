@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from datetime import timedelta, timezone
 
+from ..mongo_config import MONGO_URI
+
 # ==========================================
 # 30-Day Lifecycle Tracking Configuration (MongoDB-backed)
 # ==========================================
@@ -17,7 +19,6 @@ LIFECYCLE_DAYS = 30  # Posts are tracked for this many days before finalization
 
 # MongoDB Configuration — source of truth for dedup/lifecycle state
 # (replaces the old tracking_state.json file)
-MONGO_URI = "mongodb://localhost:27017"
 DB_NAME = "feedback_analytics"
 CONTENTS_COLLECTION = "contents"
 FEEDBACKS_COLLECTION = "feedbacks"
@@ -55,6 +56,17 @@ _COMPACT_COUNT_RE = re.compile(
 # ==========================================
 FOODPANDA_NAVIGATION_TIMEOUT_MS = 60000
 FOODPANDA_ACTION_TIMEOUT_MS = 4000
+FOODPANDA_BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/138.0.0.0 Safari/537.36"
+)
+FOODPANDA_BROWSER_LOCALE = "en-US"
+FOODPANDA_BROWSER_TIMEZONE = "Asia/Yangon"
+FOODPANDA_REVIEWS_API_BASE = "https://reviews-api-mm.fd-api.com"
+FOODPANDA_GLOBAL_ENTITY_ID = "FP_MM"
+FOODPANDA_API_PAGE_SIZE = 50
+FOODPANDA_API_MAX_REVIEWS = 500
 FOODPANDA_MAX_STEPS = 120
 FOODPANDA_STALE_LIMIT = 5
 FOODPANDA_SCROLL_WAIT_MS = 2500

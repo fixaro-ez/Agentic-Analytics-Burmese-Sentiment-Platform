@@ -140,6 +140,7 @@ from .foodpanda import (
     foodpanda_review_id,
     foodpanda_review_modal_locator,
     foodpanda_reviews_url,
+    foodpanda_vendor_code,
     harvest_foodpanda_records,
     is_foodpanda_modal_open,
     is_real_foodpanda_review,
@@ -148,6 +149,7 @@ from .foodpanda import (
     open_foodpanda_review_surface,
     scrape_business_blog,
     scrape_foodpanda_reviews,
+    scrape_foodpanda_reviews_api,
     wait_for_foodpanda_review_modal,
 )
 
@@ -259,6 +261,7 @@ __all__ = [
     "foodpanda_review_id",
     "foodpanda_review_modal_locator",
     "foodpanda_reviews_url",
+    "foodpanda_vendor_code",
     "harvest_foodpanda_records",
     "is_foodpanda_modal_open",
     "is_real_foodpanda_review",
@@ -267,5 +270,6 @@ __all__ = [
     "open_foodpanda_review_surface",
     "scrape_business_blog",
     "scrape_foodpanda_reviews",
+    "scrape_foodpanda_reviews_api",
     "wait_for_foodpanda_review_modal",
 ]

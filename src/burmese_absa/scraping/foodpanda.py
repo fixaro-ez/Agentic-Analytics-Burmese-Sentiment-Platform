@@ -11,7 +11,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from urllib.parse import unquote, urlparse, urlunparse
+from urllib.parse import unquote, urlencode, urlparse, urlunparse
+from urllib.request import Request, urlopen
 
 from ._common import (
     normalize_foodpanda_rating,
@@ -21,12 +22,17 @@ from ._common import (
 )
 from ._config import (
     FOODPANDA_ACTION_TIMEOUT_MS,
+    FOODPANDA_API_MAX_REVIEWS,
+    FOODPANDA_API_PAGE_SIZE,
+    FOODPANDA_BROWSER_USER_AGENT,
     FOODPANDA_GENERIC_AUTHORS,
+    FOODPANDA_GLOBAL_ENTITY_ID,
     FOODPANDA_MAX_STEPS,
     FOODPANDA_MORE_LABEL_RE,
     FOODPANDA_NAVIGATION_TIMEOUT_MS,
     FOODPANDA_OVERALL_RATING,
     FOODPANDA_RESPONSE_HINTS,
+    FOODPANDA_REVIEWS_API_BASE,
     FOODPANDA_REVIEW_CARDS,
     FOODPANDA_REVIEW_LABEL_RE,
     FOODPANDA_REVIEW_MODAL,
@@ -70,7 +76,21 @@ __all__ = [
     "scrape_business_blog",
     "foodpanda_reviews_url",
     "canonical_foodpanda_shop_url",
+    "validate_foodpanda_shop_url",
+    "foodpanda_vendor_code",
+    "scrape_foodpanda_reviews_api",
 ]
+
+FOODPANDA_RESTAURANT_PATH_RE = re.compile(
+    r"^/(?:[a-z]{2}/)?restaurant/[a-z0-9]{4}/[^/]+(?:/reviews)?/?$",
+    re.IGNORECASE,
+)
+FOODPANDA_BLOCKED_PAGE_RE = re.compile(
+    r"(?:access to this page has been denied|access denied|page not found|"
+    r"restaurant not found|shop not found|request blocked|security check)",
+    re.IGNORECASE,
+)
+
 
 def _first_value(mapping, keys):
     for key in keys:
@@ -96,6 +116,71 @@ def canonical_foodpanda_shop_url(shop_url):
         path = path[:-len('/reviews')]
     path = path.rstrip('/') or '/'
     return urlunparse(parsed._replace(path=path, query='', fragment=''))
+
+
+def validate_foodpanda_shop_url(shop_url):
+    """Return a canonical Foodpanda restaurant URL or raise for invalid routes."""
+    canonical = canonical_foodpanda_shop_url(shop_url)
+    parsed = urlparse(canonical)
+    hostname = (parsed.hostname or "").casefold()
+    if parsed.scheme not in {"http", "https"} or not (
+        hostname == "foodpanda.com.mm" or hostname.endswith(".foodpanda.com.mm")
+    ):
+        raise ValueError("Foodpanda scraping requires a foodpanda.com.mm URL")
+    if not FOODPANDA_RESTAURANT_PATH_RE.fullmatch(parsed.path):
+        raise ValueError(
+            "Foodpanda URL must be a restaurant page in the form "
+            "https://www.foodpanda.com.mm/restaurant/abcd/shop-name"
+        )
+    return canonical
+
+
+def foodpanda_vendor_code(shop_url):
+    canonical = validate_foodpanda_shop_url(shop_url)
+    segments = [segment for segment in urlparse(canonical).path.split('/') if segment]
+    restaurant_index = next(
+        index for index, segment in enumerate(segments)
+        if segment.casefold() == 'restaurant'
+    )
+    return segments[restaurant_index + 1].casefold()
+
+
+def _foodpanda_api_json(url):
+    request = Request(
+        url,
+        headers={
+            'Accept': 'application/json',
+            'Origin': 'https://www.foodpanda.com.mm',
+            'Referer': 'https://www.foodpanda.com.mm/',
+            'User-Agent': FOODPANDA_BROWSER_USER_AGENT,
+        },
+    )
+    with urlopen(request, timeout=20) as response:
+        status = getattr(response, 'status', 200)
+        if status >= 400:
+            raise RuntimeError(f'Foodpanda reviews API returned HTTP {status}.')
+        return json.loads(response.read().decode('utf-8'))
+
+
+def _foodpanda_navigation_error(page, navigation_response):
+    """Describe a blocked, missing, or redirected restaurant page."""
+    page_title = normalize_foodpanda_text(page.title())
+    if FOODPANDA_BLOCKED_PAGE_RE.search(page_title):
+        return (
+            f"Foodpanda did not provide a restaurant page ({page_title}). "
+            "The URL may not exist, or Foodpanda may have blocked the request."
+        )
+
+    final_url = normalize_foodpanda_text(page.url)
+    if final_url:
+        try:
+            validate_foodpanda_shop_url(final_url)
+        except ValueError:
+            return (
+                "Foodpanda redirected away from the requested restaurant page "
+                f"to {final_url}."
+            )
+    return None
 
 
 def foodpanda_review_modal_locator(page):
@@ -148,16 +233,33 @@ def normalize_foodpanda_record(record):
         record, ('text', 'comment', 'content', 'review_text', 'reviewText', 'description', 'body')))
     if not text:
         return None
-    author_value = _first_value(record, ('author', 'user_name', 'userName', 'customer_name', 'customerName', 'reviewer'))
+    author_value = _first_value(record, (
+        'author', 'user_name', 'userName', 'customer_name', 'customerName',
+        'reviewer', 'reviewer_name', 'reviewerName',
+    ))
     if isinstance(author_value, dict):
         author_value = _first_value(author_value, ('name', 'display_name', 'displayName'))
+    rating_value = _first_value(
+        record, ('rating', 'stars', 'score', 'rating_value', 'ratingValue')
+    )
+    if rating_value is None and isinstance(record.get('ratings'), list):
+        overall = next(
+            (
+                rating
+                for rating in record['ratings']
+                if isinstance(rating, dict)
+                and str(rating.get('topic', '')).casefold() == 'overall'
+            ),
+            None,
+        )
+        if overall:
+            rating_value = overall.get('score')
     return {
         'id': normalize_foodpanda_text(_first_value(record, ('id', 'review_id', 'reviewId', 'uuid'))),
         'author': normalize_foodpanda_text(author_value) or 'Unknown',
         'date': normalize_foodpanda_text(_first_value(
             record, ('date', 'created_at', 'createdAt', 'timestamp', 'submitted_at'))),
-        'rating': normalize_foodpanda_rating(_first_value(
-            record, ('rating', 'stars', 'score', 'rating_value', 'ratingValue'))),
+        'rating': normalize_foodpanda_rating(rating_value),
         'text': text,
     }
 
@@ -177,8 +279,9 @@ def find_foodpanda_review_objects(payload):
         evidence_keys = {
             'id', 'review_id', 'reviewId', 'uuid', 'author', 'user_name', 'userName',
             'customer_name', 'customerName', 'reviewer', 'date', 'created_at',
-            'createdAt', 'timestamp', 'submitted_at', 'rating', 'stars', 'score',
-            'rating_value', 'ratingValue'
+            'reviewer_name', 'reviewerName', 'createdAt', 'timestamp',
+            'submitted_at', 'rating', 'ratings', 'stars', 'score',
+            'rating_value', 'ratingValue',
         }
         if text_keys.intersection(current) and evidence_keys.intersection(current):
             normalized = normalize_foodpanda_record(current)
@@ -186,6 +289,117 @@ def find_foodpanda_review_objects(payload):
                 found.append(normalized)
         stack.extend(value for value in current.values() if isinstance(value, (dict, list)))
     return found
+
+
+def scrape_foodpanda_reviews_api(
+    shop_url,
+    entity_name,
+    max_reviews=FOODPANDA_API_MAX_REVIEWS,
+):
+    """Collect recent reviews from Foodpanda's public structured review API."""
+    canonical_shop_url = validate_foodpanda_shop_url(shop_url)
+    vendor_code = foodpanda_vendor_code(canonical_shop_url)
+    shop_uuid = (
+        f"fp_shop_{hashlib.sha256(canonical_shop_url.encode('utf-8')).hexdigest()[:16]}"
+    )
+    info_query = urlencode({'global_entity_id': FOODPANDA_GLOBAL_ENTITY_ID})
+    info_payload = _foodpanda_api_json(
+        f'{FOODPANDA_REVIEWS_API_BASE}/reviews/vendor/info/'
+        f'{vendor_code}?{info_query}'
+    )
+    info = info_payload.get('data') if isinstance(info_payload, dict) else {}
+    if not isinstance(info, dict) or info.get('vendorCode', '').casefold() != vendor_code:
+        raise RuntimeError('Foodpanda reviews API did not confirm this restaurant.')
+
+    display_name = normalize_foodpanda_text(entity_name)
+    if not display_name:
+        display_name = normalize_foodpanda_text(info.get('vendorName'))
+    if not display_name:
+        slug = urlparse(canonical_shop_url).path.rstrip('/').split('/')[-1]
+        display_name = normalize_foodpanda_text(slug.replace('-', ' ')).title()
+
+    content_obj = get_or_create_content(
+        'Platform', display_name, shop_uuid, f'{display_name} Reviews'
+    )
+    content_obj['overall_rating'] = normalize_foodpanda_rating(info.get('rating'))
+    seen_ids = {
+        feedback.get('id') or feedback.get('source_feedback_id')
+        for feedback in content_obj.get('feedbacks', [])
+    }
+    stats = {'rejected_records': 0}
+    page_key = None
+    seen_page_keys = set()
+    pages_fetched = 0
+    api_error = None
+
+    while len(content_obj['feedbacks']) < max_reviews:
+        remaining = max_reviews - len(content_obj['feedbacks'])
+        query = {
+            'global_entity_id': FOODPANDA_GLOBAL_ENTITY_ID,
+            'limit': min(FOODPANDA_API_PAGE_SIZE, remaining),
+            'has_dish': 'true',
+        }
+        if page_key:
+            query['nextPageKey'] = page_key
+        try:
+            payload = _foodpanda_api_json(
+                f'{FOODPANDA_REVIEWS_API_BASE}/reviews/vendor/{vendor_code}?'
+                f'{urlencode(query)}'
+            )
+        except Exception as exc:
+            if pages_fetched == 0:
+                raise
+            api_error = f'{type(exc).__name__}: {str(exc).strip()}'
+            break
+
+        pages_fetched += 1
+        raw_records = payload.get('data', []) if isinstance(payload, dict) else []
+        records = find_foodpanda_review_objects(raw_records)
+        harvest_foodpanda_records(
+            content_obj,
+            records[:remaining],
+            seen_ids,
+            shop_uuid,
+            source='api',
+            stats=stats,
+        )
+        next_key = payload.get('pageKey') if isinstance(payload, dict) else None
+        if not next_key or next_key in seen_page_keys or not raw_records:
+            page_key = None
+            break
+        seen_page_keys.add(next_key)
+        page_key = next_key
+
+    total_available = int(info.get('reviewNumber') or 0)
+    content_obj['review_diagnostics'] = {
+        'strategy': 'reviews-api',
+        'canonical_shop_url': canonical_shop_url,
+        'vendor_code': vendor_code,
+        'overall_rating': content_obj.get('overall_rating'),
+        'reviews_available': total_available,
+        'reviews_extracted': len(content_obj['feedbacks']),
+        'pages_fetched': pages_fetched,
+        'max_reviews': max_reviews,
+        'truncated': bool(
+            page_key or total_available > len(content_obj['feedbacks'])
+        ),
+        'rejected_records': stats.get('rejected_records', 0),
+        'api_error': api_error,
+    }
+    if not content_obj['feedbacks'] and content_obj.get('overall_rating') is None:
+        try:
+            from .storage import session_data
+            session_data.remove(content_obj)
+        except (ImportError, ValueError):
+            pass
+        raise RuntimeError(
+            'Foodpanda reviews API returned no verifiable restaurant data.'
+        )
+    print(
+        f"   -> Extracted {len(content_obj['feedbacks'])} reviews "
+        f"from the structured Foodpanda API."
+    )
+    return content_obj
 
 
 def collect_foodpanda_review_response(response, state):
@@ -617,7 +831,7 @@ def derive_foodpanda_entity_name(entity_name, page, shop_url):
         title = normalize_foodpanda_text(page.title())
         title = re.split(r'\s*[|–—-]\s*(?:foodpanda.*)?$', title, maxsplit=1, flags=re.I)[0]
         title = re.sub(
-            r'^(?:ဝေဖန်\s*)?သုံးသပ်ချက်(?:များ)?\s*|^အဆင့်သတ်မှတ်ချက်(?:များ)?\s*',
+            r'^(?:ဝေဖန်\s*သုံးသပ်ချက်(?:များ)?|သုံးသပ်ချက်(?:များ)?|အဆင့်သတ်မှတ်ချက်(?:များ)?|Reviews?)\s*',
             '',
             title,
         ).strip()
@@ -631,14 +845,29 @@ def derive_foodpanda_entity_name(entity_name, page, shop_url):
 
 def scrape_foodpanda_reviews(page, shop_url, entity_name):
     print(f"\n[INFO] Scraping Foodpanda URL: {shop_url}")
-    canonical_shop_url = canonical_foodpanda_shop_url(shop_url)
+    canonical_shop_url = validate_foodpanda_shop_url(shop_url)
     shop_uuid = f"fp_shop_{hashlib.sha256(canonical_shop_url.encode('utf-8')).hexdigest()[:16]}"
     response_state = {'records': [], 'matching_responses': 0, 'api_objects': 0,
                       'response_errors': 0, '_record_keys': set()}
     listener = lambda response: collect_foodpanda_review_response(response, response_state)
     page.on('response', listener)
     try:
-        page.goto(shop_url, wait_until='domcontentloaded', timeout=FOODPANDA_NAVIGATION_TIMEOUT_MS)
+        navigation_response = page.goto(
+            canonical_shop_url,
+            wait_until='domcontentloaded',
+            timeout=FOODPANDA_NAVIGATION_TIMEOUT_MS,
+        )
+        navigation_status = getattr(navigation_response, "status", None)
+        if not isinstance(navigation_status, int):
+            navigation_status = None
+        if navigation_status is not None and navigation_status >= 400:
+            try:
+                page.wait_for_timeout(1500)
+            except Exception:
+                pass
+        navigation_error = _foodpanda_navigation_error(page, navigation_response)
+        if navigation_error:
+            raise RuntimeError(navigation_error)
         display_name = derive_foodpanda_entity_name(entity_name, page, shop_url)
         content_obj = get_or_create_content(
             'Platform', display_name, shop_uuid, f'{display_name} Reviews')
@@ -653,6 +882,7 @@ def scrape_foodpanda_reviews(page, shop_url, entity_name):
         diagnostics = {
             'strategy': 'dom-first', 'final_url': normalize_foodpanda_text(page.url),
             'canonical_shop_url': canonical_shop_url,
+            'navigation_status': navigation_status,
             'page_title': normalize_foodpanda_text(page.title()), 'overlay': overlay,
             'review_control': surface, 'modal_opened': surface.get('modal_opened', False),
             'matching_responses': response_state['matching_responses'],
@@ -667,6 +897,26 @@ def scrape_foodpanda_reviews(page, shop_url, entity_name):
             diagnostics['reason'] = ('blocking_overlay_remaining' if overlay['blocker_remaining']
                                      else 'no_review_records_detected')
         content_obj['review_diagnostics'] = diagnostics
+        has_restaurant_evidence = bool(
+            content_obj['feedbacks']
+            or content_obj.get('overall_rating') is not None
+            or surface.get('found')
+            or surface.get('opened')
+        )
+        if (
+            not has_restaurant_evidence
+            and navigation_status is not None
+            and navigation_status >= 400
+        ):
+            try:
+                from .storage import session_data
+                session_data.remove(content_obj)
+            except (ImportError, ValueError):
+                pass
+            raise RuntimeError(
+                f"Foodpanda returned HTTP {navigation_status} and the page "
+                "contained no verifiable restaurant or review data."
+            )
         print(f"   -> Extracted {len(content_obj['feedbacks'])} unique reviews. "
               f"({pagination['termination_reason']})")
         return content_obj

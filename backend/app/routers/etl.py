@@ -9,9 +9,11 @@ from ..models.etl import (
     ETLRunHistory,
     ETLRunRequest,
     ETLRunResponse,
+    ETLHealthResponse,
     ETLStatusResponse,
 )
 from ..services.etl import (
+    get_health,
     get_history,
     get_status,
     run_absa_etl,
@@ -32,6 +34,7 @@ async def trigger_full_etl(
         reprocess=body.reprocess,
         threshold=body.threshold,
         user_id=user.user_id,
+        target=body.target,
     )
     return ETLRunResponse(
         run_id=run_id,
@@ -90,6 +93,12 @@ async def trigger_export(
 @router.get("/status", response_model=ETLStatusResponse)
 async def etl_status(user: AuthUser = Depends(get_current_user)):
     return await get_status()
+
+
+@router.get("/health", response_model=ETLHealthResponse)
+async def etl_health(user: AuthUser = Depends(get_current_user)):
+    """Read-only, fault-tolerant pipeline health snapshot."""
+    return await get_health()
 
 
 @router.get("/history", response_model=list[ETLRunHistory])

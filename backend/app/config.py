@@ -20,7 +20,8 @@ class Settings(BaseSettings):
     PG_PASSWORD: str
     PG_DBNAME: str = "postgres"
 
-    OPENAI_API_KEY: str = ""
+    GOOGLE_API_KEY: str = ""
+    GOOGLE_MODEL: str = "gemini-3.5-flash"
 
     MONGO_URI: str = "mongodb://localhost:27017"
 

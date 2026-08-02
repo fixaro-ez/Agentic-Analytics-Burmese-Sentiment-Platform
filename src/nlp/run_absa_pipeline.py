@@ -19,6 +19,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
+import os
 import sys
 from contextlib import nullcontext
 from datetime import datetime
@@ -29,6 +32,8 @@ import torch
 from pymongo import MongoClient, ReplaceOne
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+from burmese_absa.mongo_config import MONGO_URI
+
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding='utf-8', errors='replace')
@@ -36,7 +41,6 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 
-MONGO_URI = "mongodb://localhost:27017"
 DB_NAME = "feedback_analytics"
 
 CLEANED_FEEDBACKS = "cleaned_feedbacks"
@@ -69,6 +73,7 @@ DEFAULT_MODELS_DIR = REPO_ROOT / "models"
 DEFAULT_THRESHOLD = 0.5
 GPU_BATCH_SIZE = 32
 CPU_BATCH_SIZE = 8
+ABSA_PIPELINE_VERSION = "2026-08-01-v1"
 
 
 def detect_device() -> tuple[str, torch.dtype, int]:
@@ -77,12 +82,13 @@ def detect_device() -> tuple[str, torch.dtype, int]:
     return "cpu", torch.float32, CPU_BATCH_SIZE
 
 
-def get_db() -> tuple[MongoClient, Any]:
+def get_db(mongo_uri: str | None = None) -> tuple[MongoClient, Any]:
     try:
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        resolved_uri = mongo_uri or MONGO_URI
+        client = MongoClient(resolved_uri, serverSelectionTimeoutMS=5000)
         client.admin.command('ping')
     except Exception as e:
-        print(f"\n[ERROR] MongoDB not reachable at {MONGO_URI}: {e}")
+        print(f"\n[ERROR] MongoDB not reachable at {mongo_uri or MONGO_URI}: {e}")
         print("[HINT] Start MongoDB first: docker-compose up -d")
         raise
     db = client[DB_NAME]
@@ -98,10 +104,165 @@ def ensure_absa_indexes(db: Any) -> None:
         print(f"[WARN] Index creation skipped: {type(exc).__name__}: {exc}")
 
 
-def get_unprocessed_ids(source_col: str, output_col: str, db: Any) -> set[str]:
-    source_ids = {doc["_id"] for doc in db[source_col].find({}, {"_id": 1})}
-    output_ids = {doc["_id"] for doc in db[output_col].find({}, {"_id": 1})}
-    return source_ids - output_ids
+def _processing_fingerprint(
+    doc: dict[str, Any],
+    *,
+    pipeline: str,
+    threshold: float,
+) -> str:
+    """Version ABSA outputs by source state, models, and threshold."""
+    source_fingerprint = doc.get("source_fingerprint")
+    if not source_fingerprint:
+        fallback_fields = (
+            (
+                "content_id",
+                "entity_name",
+                "cleaned_text",
+                "feedback_timestamp",
+                "platform",
+                "rating",
+            )
+            if pipeline == "feedbacks"
+            else (
+                "entity_name",
+                "cleaned_text",
+                "post_timestamp",
+                "platform",
+                "positivity_ratio",
+                "negativity_ratio",
+                "total_reactions",
+                "like_count",
+                "love_count",
+                "haha_count",
+                "sad_count",
+                "angry_count",
+                "care_count",
+                "wow_count",
+                "shares_count",
+                "comments_count",
+            )
+        )
+        source_fingerprint = hashlib.sha256(
+            json.dumps(
+                {field: doc.get(field) for field in fallback_fields},
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=lambda item: item.isoformat()
+                if isinstance(item, datetime)
+                else str(item),
+            ).encode("utf-8")
+        ).hexdigest()
+    payload = {
+        "source_fingerprint": source_fingerprint,
+        "pipeline": pipeline,
+        "pipeline_version": ABSA_PIPELINE_VERSION,
+        "aspect_model": ASPECT_MODEL_ID,
+        "sentiment_model": (
+            SENTIMENT_MODEL_ID if pipeline == "feedbacks" else None
+        ),
+        "threshold": round(float(threshold), 6),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+def get_unprocessed_ids(
+    source_col: str,
+    output_col: str,
+    db: Any,
+    *,
+    source_filter: dict[str, Any] | None = None,
+    pipeline: str | None = None,
+    threshold: float = DEFAULT_THRESHOLD,
+) -> set[str]:
+    """
+    Return eligible IDs whose ABSA representation is missing or stale.
+
+    The old implementation compared IDs only, so updated text, reactions, and
+    model thresholds never propagated after the first successful run.
+    """
+    if pipeline is None:
+        source_ids = {
+            doc["_id"]
+            for doc in db[source_col].find(source_filter or {}, {"_id": 1})
+        }
+        output_ids = {
+            doc["_id"] for doc in db[output_col].find({}, {"_id": 1})
+        }
+        return source_ids - output_ids
+
+    output_fingerprints = {
+        doc["_id"]: doc.get("processing_fingerprint")
+        for doc in db[output_col].find(
+            {}, {"_id": 1, "processing_fingerprint": 1}
+        )
+    }
+    return {
+        doc["_id"]
+        for doc in db[source_col].find(source_filter or {})
+        if output_fingerprints.get(doc["_id"])
+        != _processing_fingerprint(
+            doc, pipeline=pipeline, threshold=threshold
+        )
+    }
+
+
+def get_pending_feedback_ids(db: Any, threshold: float) -> set[str]:
+    return get_unprocessed_ids(
+        CLEANED_FEEDBACKS,
+        OUTPUT_FEEDBACKS,
+        db,
+        source_filter={
+            "cleaning_status": "clean",
+            "cleaned_text": {"$exists": True, "$ne": ""},
+        },
+        pipeline="feedbacks",
+        threshold=threshold,
+    )
+
+
+def get_pending_content_ids(db: Any, threshold: float) -> set[str]:
+    return get_unprocessed_ids(
+        CLEANED_CONTENTS,
+        OUTPUT_CONTENTS,
+        db,
+        source_filter={
+            "platform": "facebook",
+            "cleaning_status": "clean",
+            "cleaned_text": {"$exists": True, "$ne": ""},
+        },
+        pipeline="contents",
+        threshold=threshold,
+    )
+
+
+def remove_ineligible_outputs(db: Any, pipeline: str) -> int:
+    """Remove derived ABSA documents whose cleaned source is no longer eligible."""
+    if pipeline == "contents":
+        source_col = CLEANED_CONTENTS
+        output_col = OUTPUT_CONTENTS
+        source_filter = {
+            "platform": "facebook",
+            "cleaning_status": "clean",
+            "cleaned_text": {"$exists": True, "$ne": ""},
+        }
+    elif pipeline == "feedbacks":
+        source_col = CLEANED_FEEDBACKS
+        output_col = OUTPUT_FEEDBACKS
+        source_filter = {
+            "cleaning_status": "clean",
+            "cleaned_text": {"$exists": True, "$ne": ""},
+        }
+    else:
+        raise ValueError(f"Unknown ABSA pipeline: {pipeline}")
+
+    eligible_ids = db[source_col].distinct("_id", source_filter)
+    result = db[output_col].delete_many({"_id": {"$nin": eligible_ids}})
+    return int(result.deleted_count or 0)
 
 
 def _resolve_model_path(
@@ -219,7 +380,7 @@ def run_feedbacks_pipeline(
 ) -> dict[str, int]:
     stats = {"processed": 0, "written": 0, "skipped": 0, "zero_aspect": 0}
 
-    unprocessed_ids = get_unprocessed_ids(CLEANED_FEEDBACKS, OUTPUT_FEEDBACKS, db)
+    unprocessed_ids = get_pending_feedback_ids(db, threshold)
     if not unprocessed_ids:
         print("[FEEDBACKS] No unprocessed documents found.")
         return stats
@@ -238,11 +399,12 @@ def run_feedbacks_pipeline(
             {
                 "_id": 1, "content_id": 1, "entity_name": 1,
                 "cleaned_text": 1, "feedback_timestamp": 1, "platform": 1,
+                "rating": 1, "source_fingerprint": 1,
             },
         ))
 
+        stats["skipped"] += len(batch_ids) - len(docs)
         if not docs:
-            stats["skipped"] += len(batch_ids)
             continue
 
         valid_docs = [d for d in docs if d.get("cleaned_text") and d["cleaned_text"].strip()]
@@ -307,6 +469,10 @@ def run_feedbacks_pipeline(
 
             output_doc = {
                 "feedback_id": doc["_id"],
+                "source_fingerprint": doc.get("source_fingerprint"),
+                "processing_fingerprint": _processing_fingerprint(
+                    doc, pipeline="feedbacks", threshold=threshold
+                ),
                 "content_id": doc.get("content_id"),
                 "platform": doc.get("platform", "foodpanda"),
                 "entity_name": doc.get("entity_name", ""),
@@ -349,7 +515,7 @@ def run_contents_pipeline(
 ) -> dict[str, int]:
     stats = {"processed": 0, "written": 0, "skipped": 0}
 
-    unprocessed_ids = get_unprocessed_ids(CLEANED_CONTENTS, OUTPUT_CONTENTS, db)
+    unprocessed_ids = get_pending_content_ids(db, threshold)
     if not unprocessed_ids:
         print("[CONTENTS] No unprocessed documents found.")
         return stats
@@ -369,6 +535,7 @@ def run_contents_pipeline(
             {
                 "_id": 1, "entity_name": 1, "cleaned_text": 1,
                 "post_timestamp": 1, "platform": 1,
+                "source_fingerprint": 1,
                 "positivity_ratio": 1, "negativity_ratio": 1,
                 "total_reactions": 1, "like_count": 1, "love_count": 1,
                 "haha_count": 1, "sad_count": 1, "angry_count": 1, "care_count": 1,
@@ -376,8 +543,8 @@ def run_contents_pipeline(
             },
         ))
 
+        stats["skipped"] += len(batch_ids) - len(docs)
         if not docs:
-            stats["skipped"] += len(batch_ids)
             continue
 
         valid_docs = [d for d in docs if d.get("cleaned_text") and d["cleaned_text"].strip()]
@@ -403,6 +570,10 @@ def run_contents_pipeline(
         for doc_idx, doc in enumerate(valid_docs):
             output_doc = {
                 "content_id": doc["_id"],
+                "source_fingerprint": doc.get("source_fingerprint"),
+                "processing_fingerprint": _processing_fingerprint(
+                    doc, pipeline="contents", threshold=threshold
+                ),
                 "platform": "facebook",
                 "entity_name": doc.get("entity_name", ""),
                 "post_timestamp": doc.get("post_timestamp"),

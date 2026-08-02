@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import threading
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from .config import settings
 from .database import get_supabase
 
 _bearer_scheme = HTTPBearer()
+_claims_lock = threading.Lock()
 
 
 class AuthUser:
@@ -20,21 +25,35 @@ async def get_current_user(
 ) -> AuthUser:
     token = credentials.credentials
     sb = get_supabase()
+
+    def _verified_claims() -> dict:
+        # supabase-py's auth client is synchronous. Keep its first JWKS fetch
+        # off the event loop and serialize access to the shared client; after
+        # that, ES256 verification uses the client's cached public key.
+        with _claims_lock:
+            response = sb.auth.get_claims(token)
+        return response["claims"] if response is not None else {}
+
     try:
-        response = sb.auth.get_user(token)
-        user = response.user
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token",
-            )
+        claims = await asyncio.to_thread(_verified_claims)
+        issuer = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1"
+        audience = claims.get("aud")
+        valid_audience = (
+            audience == "authenticated"
+            or isinstance(audience, list)
+            and "authenticated" in audience
+        )
+        user_id = claims.get("sub")
+        if claims.get("iss") != issuer or not valid_audience or not user_id:
+            raise ValueError("Token claims do not match this Supabase project")
+
         return AuthUser(
-            user_id=str(user.id),
-            email=user.email or "",
-            role=user.role or "authenticated",
+            user_id=str(user_id),
+            email=str(claims.get("email") or ""),
+            role=str(claims.get("role") or "authenticated"),
         )
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-        )
+        ) from None

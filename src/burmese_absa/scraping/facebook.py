@@ -451,6 +451,55 @@ async def _detect_interruption(page: Page) -> str | None:
     return None
 
 
+def _reaction_count_info(label: str, reaction: str) -> tuple[int | None, bool]:
+    """Parse only a count attached to the requested reaction label."""
+    text = _fb_normalize_text(label).translate(_BURMESE_DIGITS)
+    count_pattern = r"([0-9]+(?:[.,][0-9]+)*\s*[KMB]?)"
+    matches: list[tuple[int, bool]] = []
+    for alias in _REACTION_ALIASES.get(reaction, ()):
+        escaped = re.escape(alias)
+        if alias.isascii():
+            alias_pattern = rf"(?<![a-z]){escaped}(?![a-z])"
+        else:
+            alias_pattern = escaped
+        patterns = (
+            re.compile(
+                rf"{alias_pattern}\s*[:\u00b7]?\s*{count_pattern}",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                rf"{count_pattern}\s*(?:people\s+)?{alias_pattern}",
+                re.IGNORECASE,
+            ),
+        )
+        for pattern in patterns:
+            for match in pattern.finditer(text):
+                value, exact = _count_info(match.group(1))
+                if value is not None:
+                    matches.append((value, exact))
+    return max(matches, key=lambda item: item[0], default=(None, False))
+
+
+def _facebook_interruption_message(reason: str, requested_url: str) -> str:
+    if reason in {"login_or_checkpoint", "login_required"}:
+        return (
+            "Facebook requires sign-in or checkpoint confirmation. Refresh "
+            "cookies.json after completing the checkpoint in a normal browser."
+        )
+    if reason == "rate_limited":
+        return (
+            "Facebook temporarily rate-limited this session. Wait before retrying "
+            "and avoid starting overlapping Facebook scrapes."
+        )
+    if reason == "unavailable":
+        return (
+            f"Facebook says the page is unavailable: {requested_url}. Verify the "
+            "exact page address. Facebook usernames do not contain spaces; for "
+            "Lotteria Myanmar use https://www.facebook.com/LotteriaMyanmar."
+        )
+    return f"Facebook interrupted the scrape while opening {requested_url}."
+
+
 async def _is_authenticated(page: Page) -> bool:
     login_controls = page.locator(
         "input[name='email'], input[name='pass'], form[action*='login']"
@@ -468,10 +517,29 @@ async def _discover_post_permalinks(
 
     posts_by_position: dict[int, str] = {}
     seen: set[str] = set()
+    normalized_page_url = _normalize_url(page_url).rstrip("/")
+    discovery_urls = [
+        f"{normalized_page_url}/posts",
+        f"{normalized_page_url}?sk=posts",
+        normalized_page_url,
+    ]
+    unavailable_routes = 0
 
-    for navigation_attempt in range(1, 4):
-        await _goto_recoverable(page, page_url)
+    for navigation_attempt, discovery_url in enumerate(discovery_urls, 1):
+        await _goto_recoverable(page, discovery_url)
         await _dismiss_facebook_overlays(page)
+        interruption = await _detect_interruption(page)
+        if interruption:
+            if interruption == "unavailable":
+                unavailable_routes += 1
+                print(
+                    f"[WARN] Facebook marked discovery route unavailable: "
+                    f"{discovery_url}"
+                )
+                continue
+            raise RuntimeError(
+                _facebook_interruption_message(interruption, page_url)
+            )
         positioned_posts = page.locator("div[aria-posinset]")
         fallback_articles = page.locator("div[role='article'], article")
         try:
@@ -489,6 +557,7 @@ async def _discover_post_permalinks(
         stale_rounds = 0
         max_scroll_attempts = 30  # More aggressive scrolling
         for scroll_attempt in range(max_scroll_attempts):
+            before_scan = len(posts_by_position)
             positioned_count = await positioned_posts.count()
             if positioned_count:
                 containers: list[Locator] = [
@@ -569,34 +638,55 @@ async def _discover_post_permalinks(
                 )
             except Exception:
                 global_hrefs = []
-            if positioned_count == 0:
-                for href in sorted(
-                    (
-                        href
-                        for href in global_hrefs
-                        if _is_post_permalink(href)
-                        and _permalink_score(href) >= 80
-                        and _href_belongs_to_facebook_page(href, page_url)
-                    ),
-                    key=_permalink_score,
-                    reverse=True,
+            # Facebook frequently exposes permalink anchors outside the
+            # aria-posinset wrapper (especially on /posts and virtualized feeds).
+            # Process these on every round, not only when no positioned wrapper
+            # exists.
+            for href in global_hrefs:
+                if not (
+                    _is_post_permalink(href)
+                    and _permalink_score(href) >= 80
+                    and _href_belongs_to_facebook_page(href, page_url)
+                    and _post_candidate_belongs_to_page(href, page_url)
                 ):
-                    permalink = _canonical_post_permalink(href, page_url)
-                    key = _platform_content_id(permalink) or permalink
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    fallback_position = 1_000_000 + len(posts_by_position)
-                    posts_by_position[fallback_position] = permalink
-                    if len(posts_by_position) >= max_posts:
-                        return [
-                            posts_by_position[item]
-                            for item in sorted(posts_by_position)[:max_posts]
-                        ]
+                    continue
+                permalink = _canonical_post_permalink(href, page_url)
+                key = _platform_content_id(permalink) or permalink
+                if key in seen:
+                    continue
+                seen.add(key)
+                fallback_position = 1_000_000 + len(posts_by_position)
+                posts_by_position[fallback_position] = permalink
+                print(
+                    f"[DEBUG] Found fallback post at position "
+                    f"{fallback_position}: {permalink[:60]}..."
+                )
 
-            before = len(posts_by_position)
-            # Scroll down to load more posts
-            await page.mouse.wheel(0, 2_500)  # Larger scroll increment
+            discovered_this_round = len(posts_by_position) - before_scan
+            stale_rounds = 0 if discovered_this_round else stale_rounds + 1
+
+            if len(posts_by_position) >= max_posts:
+                print(
+                    f"[INFO] Discovered {len(posts_by_position)} unique posts; "
+                    f"requested {max_posts}."
+                )
+                break
+
+            # Scroll both the last mounted post and the document. Facebook uses
+            # virtualized/nested feed containers, so relying on mouse.wheel alone
+            # can leave the feed pinned to its first card.
+            if containers:
+                try:
+                    await containers[-1].scroll_into_view_if_needed(timeout=2_000)
+                except Exception:
+                    pass
+            await page.evaluate(
+                """() => {
+                    const root = document.scrollingElement || document.documentElement;
+                    root.scrollBy(0, Math.max(window.innerHeight * 1.5, 1600));
+                }"""
+            )
+            await page.mouse.wheel(0, 2_500)
             # Wait for new content to load
             try:
                 await page.wait_for_function(
@@ -606,40 +696,27 @@ async def _discover_post_permalinks(
                 )
             except PlaywrightTimeoutError:
                 pass
-            # Small delay to let Facebook render new posts
-            await asyncio.sleep(0.5)
-            
-            stale_rounds = (
-                stale_rounds + 1 if len(posts_by_position) == before else 0
-            )
-            
-            # Check if we have enough posts with correct positions
-            if len(posts_by_position) >= max_posts:
-                sorted_positions = sorted(posts_by_position.keys())
-                # Check if we have consecutive positions starting from 1
-                expected_positions = list(range(1, max_posts + 1))
-                if sorted_positions[:max_posts] == expected_positions:
-                    print(f"[INFO] Found {max_posts} consecutive posts at positions {expected_positions}")
-                    break
-                # If we have enough posts but with gaps, keep scrolling a bit more
-                # to try to fill the gaps
-                if len(sorted_positions) >= max_posts and stale_rounds < 5:
-                    continue  # Keep scrolling to fill gaps
-                # If we've scrolled enough or have way more than needed, accept what we have
-                if len(sorted_positions) >= max_posts:
-                    print(f"[INFO] Collected {len(sorted_positions)} posts, taking first {max_posts} from positions {sorted_positions[:max_posts]}")
-                    break
+            await asyncio.sleep(0.75)
             
             if stale_rounds >= 8:  # More tolerance for stale rounds
                 print(f"[INFO] No new posts for 8 scroll attempts, collected {len(posts_by_position)} posts")
                 break
 
-        if posts_by_position:
+        if len(posts_by_position) >= max_posts:
             break
-        print(
-            f"[WARN] No post permalink found after page-load attempt "
-            f"{navigation_attempt}/3; retrying."
-        )
+        if posts_by_position:
+            print(
+                f"[WARN] Found only {len(posts_by_position)}/{max_posts} posts "
+                f"via {discovery_url}; trying another Facebook feed route."
+            )
+        else:
+            print(
+                f"[WARN] No post permalink found after page-load attempt "
+                f"{navigation_attempt}/{len(discovery_urls)}; retrying."
+            )
+
+    if not posts_by_position and unavailable_routes == len(discovery_urls):
+        raise RuntimeError(_facebook_interruption_message("unavailable", page_url))
 
     return [
         posts_by_position[item]
@@ -652,8 +729,9 @@ async def _post_surface_score(
 ) -> int:
     try:
         handle = await candidate.element_handle(timeout=700)
-        if handle is None or not await handle.is_visible():
+        if handle is None:
             return -1
+        visible = await handle.is_visible()
         payload = await handle.evaluate(
             """node => ({
                 role: node.getAttribute('role') || '',
@@ -678,6 +756,13 @@ async def _post_surface_score(
     )
     if platform_id and not has_platform_id:
         return -1
+    identity_matches = bool(page_identity) and page_identity in normalized_actions
+    # Facebook sometimes keeps the exact permalink post inside a hidden dialog
+    # while a visual shell is mounted elsewhere. Accept a hidden candidate only
+    # when both the post ID and page identity correlate; this avoids selecting
+    # unrelated background/recommended posts.
+    if not visible and not (has_platform_id and identity_matches):
+        return -1
     score = 0
     if payload.get("role") == "dialog":
         score += 60
@@ -685,7 +770,7 @@ async def _post_surface_score(
         score += 25
     if has_platform_id:
         score += 50
-    if page_identity and page_identity in normalized_actions:
+    if identity_matches:
         score += 80
     if payload.get("messages"):
         score += 25
@@ -697,6 +782,9 @@ async def _post_surface_score(
         score += 8
     if len(text) > 20:
         score += 3
+    # A mounted feed/dialog can retain a hidden stale copy of the same post.
+    # Always prefer the visible copy when both carry the exact permalink.
+    score += 200 if visible else -10
     return score
 
 
@@ -903,9 +991,16 @@ async def _recover_post_surface_from_feed(
 
 
 async def _extract_post_text(surface: Locator) -> str:
-    messages = surface.locator(
+    visible_messages = surface.locator(
         "div[data-ad-comet-preview='message']:visible, "
         "div[data-ad-preview='message']:visible"
+    )
+    messages = (
+        visible_messages
+        if await visible_messages.count()
+        else surface.locator(
+            "div[data-ad-comet-preview='message'], div[data-ad-preview='message']"
+        )
     )
     if await messages.count():
         see_more = messages.first.get_by_text(
@@ -921,9 +1016,11 @@ async def _extract_post_text(surface: Locator) -> str:
                     )
             except Exception:
                 pass
-        return _clean_facebook_post_text(
-            await messages.first.inner_text(timeout=3_000)
-        )
+        try:
+            raw_text = await messages.first.inner_text(timeout=3_000)
+        except Exception:
+            raw_text = await messages.first.text_content(timeout=3_000) or ""
+        return _clean_facebook_post_text(raw_text)
     try:
         surface_role = await surface.get_attribute("role")
         surface_tag = await surface.evaluate("node => node.tagName")
@@ -1178,18 +1275,116 @@ async def _engagement_labels(surface: Locator) -> list[str]:
             "[role='button'], [role='link'], [aria-label], a"
         ).evaluate_all(
             """nodes => nodes.filter(node => {
-                const rect = node.getBoundingClientRect();
-                const style = getComputedStyle(node);
-                return rect.width > 0 && rect.height > 0
-                    && style.visibility !== 'hidden' && style.display !== 'none';
-            }).slice(0, 400).map(node => [
+                    const rect = node.getBoundingClientRect();
+                    const style = getComputedStyle(node);
+                    return rect.width > 0 && rect.height > 0
+                        && style.visibility !== 'hidden' && style.display !== 'none';
+                }).slice(0, 400).map(node => [
                     node.getAttribute('aria-label') || '',
                     node.getAttribute('title') || '',
-                    node.innerText || ''
+                    node.innerText || node.textContent || ''
                 ].filter(Boolean).join(' '))"""
         )
     except Exception:
         return []
+
+
+async def _engagement_action_counts(
+    surface: Locator,
+) -> dict[str, tuple[int, bool, str]]:
+    """Read the count beside Like/Comment/Share in Facebook's action row.
+
+    Reel/permalink layouts render these values as text-only siblings rather than
+    accessible labels (for example: ``Like`` + ``2.7K``). Requiring all three
+    action kinds in one shallow row prevents a comment's own reaction control
+    from being mistaken for post-level engagement.
+    """
+    try:
+        payload = await surface.evaluate(
+            """root => {
+                const visible = node => {
+                    const rect = node.getBoundingClientRect();
+                    const style = getComputedStyle(node);
+                    return rect.width > 0 && rect.height > 0
+                        && style.visibility !== 'hidden' && style.display !== 'none';
+                };
+                const kind = node => {
+                    const label = (node.getAttribute('aria-label') || '').trim().toLowerCase();
+                    if (label === 'like' || label === 'react') return 'reactions';
+                    if (label === 'comment' || label === 'comments') return 'comments';
+                    if (label === 'share' || label === 'shares') return 'shares';
+                    return '';
+                };
+                const buttons = Array.from(root.querySelectorAll('[aria-label]'))
+                    .filter(node => visible(node) && kind(node));
+                const candidates = new Map();
+                for (const button of buttons) {
+                    let node = button.parentElement;
+                    for (let depth = 1; node && node !== root.parentElement && depth <= 12;
+                            depth += 1, node = node.parentElement) {
+                        const kinds = new Set(
+                            Array.from(node.querySelectorAll('[aria-label]'))
+                                .filter(visible).map(kind).filter(Boolean)
+                        );
+                        if (kinds.has('reactions') && kinds.has('comments') && kinds.has('shares')) {
+                            const current = candidates.get(node);
+                            if (!current || depth < current.depth) candidates.set(node, {depth});
+                            break;
+                        }
+                        if (node === root) break;
+                    }
+                }
+                const rows = Array.from(candidates.entries()).map(([node, meta]) => ({
+                    node,
+                    depth: meta.depth,
+                    size: node.querySelectorAll('*').length,
+                })).sort((a, b) => a.depth - b.depth || a.size - b.size);
+                if (!rows.length) return [];
+                const row = rows[0].node;
+                const results = [];
+                for (const branch of Array.from(row.children)) {
+                    const branchKinds = new Set(
+                        Array.from(branch.querySelectorAll('[aria-label]'))
+                            .filter(visible).map(kind).filter(Boolean)
+                    );
+                    for (const itemKind of branchKinds) {
+                        results.push({kind: itemKind, text: (branch.innerText || '').trim()});
+                    }
+                }
+                return results;
+            }"""
+        )
+    except Exception:
+        return {}
+
+    counts: dict[str, tuple[int, bool, str]] = {}
+    for item in payload or []:
+        kind = str(item.get("kind") or "")
+        label = _fb_normalize_text(item.get("text"))
+        value, exact = _count_info(label)
+        if kind in {"reactions", "comments", "shares"} and value is not None:
+            previous = counts.get(kind)
+            if previous is None or value > previous[0]:
+                counts[kind] = (value, exact, label)
+    return counts
+
+
+def _metric_count_info(raw: Any, kind: str) -> tuple[int | None, bool]:
+    """Parse the number attached to a specific metric, not any number nearby."""
+    text = _fb_normalize_text(raw).translate(_BURMESE_DIGITS)
+    metric = r"comments?" if kind == "comments" else r"shares?"
+    number = r"([0-9]+(?:[.,][0-9]+)*)\s*([KMB]?)"
+    patterns = (
+        re.compile(rf"{number}\s*{metric}\b", re.IGNORECASE),
+        re.compile(rf"\b{metric}\s*[:\u00b7]\s*{number}", re.IGNORECASE),
+    )
+    matches: list[tuple[int, bool]] = []
+    for pattern in patterns:
+        for match in pattern.finditer(text):
+            value, exact = _count_info("".join(match.groups()[-2:]))
+            if value is not None:
+                matches.append((value, exact))
+    return max(matches, key=lambda item: item[0], default=(None, False))
 
 
 def _aggregate_metric(labels: list[str], kind: str) -> int:
@@ -1201,10 +1396,40 @@ def _aggregate_metric(labels: list[str], kind: str) -> int:
     for label in labels:
         lowered = _fb_normalize_text(label).casefold()
         if any(token in lowered for token in tokens):
-            value, _ = _count_info(lowered)
+            value, _ = _metric_count_info(lowered, kind)
             if value is not None:
                 values.append(value)
     return max(values, default=0)
+
+
+def _totals_compatible(known: int, displayed: int, displayed_exact: bool) -> bool:
+    """Allow compact display rounding without accepting unrelated DOM counts."""
+    if displayed_exact:
+        return known == displayed
+    tolerance = max(1, round(displayed * 0.05))
+    return abs(known - displayed) <= tolerance
+
+
+def _partial_reaction_payload(
+    toolbar: Mapping[str, int],
+    displayed_total: int | None,
+    displayed_exact: bool,
+) -> tuple[dict[str, int | None], bool]:
+    """Build a partial payload without publishing cross-contaminated categories."""
+    known_sum = sum(toolbar.values())
+    raw = _empty_reactions(
+        displayed_total if displayed_total is not None else known_sum
+    )
+    contaminated = (
+        displayed_total is not None
+        and known_sum > displayed_total
+        and not _totals_compatible(known_sum, displayed_total, displayed_exact)
+    )
+    if not contaminated:
+        for key, value in toolbar.items():
+            if key in REACTION_KEYS:
+                raw[key] = value
+    return raw, contaminated
 
 
 def _reaction_toolbar(labels: list[str]) -> tuple[dict[str, int], bool]:
@@ -1214,7 +1439,7 @@ def _reaction_toolbar(labels: list[str]) -> tuple[dict[str, int], bool]:
         reaction = _reaction_type(label)
         if not reaction:
             continue
-        value, item_exact = _count_info(label)
+        value, item_exact = _reaction_count_info(label, reaction)
         if value is None:
             continue
         counts[reaction] = max(counts.get(reaction, 0), value)
@@ -1322,7 +1547,7 @@ def _parse_reaction_payload(payload: Mapping[str, Any]) -> tuple[dict[str, int],
         reaction = _reaction_type(label)
         if not reaction:
             continue
-        value, item_exact = _count_info(label)
+        value, item_exact = _reaction_count_info(label, reaction)
         if value is None:
             continue
         counts[reaction] = max(counts.get(reaction, 0), value)
@@ -1380,7 +1605,9 @@ async def _close_reaction_overlay(page: Page, marker: str) -> None:
 
 
 async def extract_reaction_breakdown(
-    page: Page, post_surface: Locator
+    page: Page,
+    post_surface: Locator,
+    displayed_total_hint: tuple[int, bool, str] | None = None,
 ) -> ReactionScrapeResult:
     started = time.monotonic()
     labels = await _engagement_labels(post_surface)
@@ -1388,8 +1615,21 @@ async def extract_reaction_breakdown(
         surface_text = await post_surface.inner_text(timeout=2_000)
     except Exception:
         surface_text = ""
-    displayed_total, summary_exact, summary_label = _summary_total(
+    observed_total, observed_exact, observed_label = _summary_total(
         [surface_text, *labels]
+    )
+    if displayed_total_hint is not None:
+        displayed_total, summary_exact, summary_label = displayed_total_hint
+    else:
+        displayed_total, summary_exact, summary_label = (
+            observed_total,
+            observed_exact,
+            observed_label,
+        )
+    summary_conflict = (
+        displayed_total_hint is not None
+        and observed_total is not None
+        and not _totals_compatible(observed_total, displayed_total, summary_exact)
     )
     toolbar, toolbar_exact = _reaction_toolbar(labels)
     diagnostics: dict[str, Any] = {
@@ -1401,6 +1641,12 @@ async def extract_reaction_breakdown(
         "modal_stalled": False,
         "known_reaction_sum": sum(toolbar.values()),
         "displayed_total": displayed_total,
+        "displayed_total_source": "action_row"
+        if displayed_total_hint is not None
+        else "accessible_summary",
+        "observed_summary_total": observed_total,
+        "observed_summary_label": observed_label,
+        "summary_conflict": summary_conflict,
     }
 
     if displayed_total == 0:
@@ -1418,7 +1664,9 @@ async def extract_reaction_breakdown(
             diagnostics["elapsed_ms"] = int((time.monotonic() - started) * 1000)
             return ReactionScrapeResult(_zero_reactions(), True, True, diagnostics)
 
-    summary = await _find_reaction_summary(post_surface)
+    # A conflicting accessible summary normally belongs to a nested comment.
+    # Do not click it and accidentally open the comment's reaction breakdown.
+    summary = None if summary_conflict else await _find_reaction_summary(post_surface)
     marker = "data-codex-existing-reaction-dialog"
     await page.locator("div[role='dialog']").evaluate_all(
         "(nodes, name) => nodes.forEach(node => node.setAttribute(name, '1'))", marker
@@ -1436,10 +1684,8 @@ async def extract_reaction_breakdown(
                     counts, exact = _parse_reaction_payload(payload)
                     if counts:
                         category_sum = sum(counts.values())
-                        complete_by_total = (
-                            displayed_total is None
-                            or not summary_exact
-                            or category_sum == displayed_total
+                        complete_by_total = displayed_total is None or _totals_compatible(
+                            category_sum, displayed_total, summary_exact
                         )
                         if complete_by_total:
                             raw = {
@@ -1481,7 +1727,9 @@ async def extract_reaction_breakdown(
                 if not counts:
                     continue
                 known_sum = sum(counts.values())
-                if displayed_total is None or known_sum == displayed_total:
+                if displayed_total is None or _totals_compatible(
+                    known_sum, displayed_total, summary_exact
+                ):
                     raw = {
                         **{key: counts.get(key, 0) for key in REACTION_KEYS},
                         "total": known_sum,
@@ -1503,7 +1751,9 @@ async def extract_reaction_breakdown(
 
     if toolbar:
         known_sum = sum(toolbar.values())
-        if displayed_total is not None and known_sum == displayed_total:
+        if displayed_total is not None and _totals_compatible(
+            known_sum, displayed_total, summary_exact
+        ):
             raw = {
                 **{key: toolbar.get(key, 0) for key in REACTION_KEYS},
                 "total": known_sum,
@@ -1534,14 +1784,17 @@ async def extract_reaction_breakdown(
             diagnostics["elapsed_ms"] = int((time.monotonic() - started) * 1000)
             return ReactionScrapeResult(raw, True, toolbar_exact, diagnostics)
 
-        raw = _empty_reactions(displayed_total if displayed_total is not None else known_sum)
-        for key, value in toolbar.items():
-            raw[key] = value
+        raw, contaminated = _partial_reaction_payload(
+            toolbar, displayed_total, summary_exact
+        )
         diagnostics.update(
             status="partial",
             source="toolbar",
             known_reaction_sum=known_sum,
-            termination_reason="reaction_dialog_stalled",
+            toolbar_contaminated=contaminated,
+            termination_reason="inconsistent_reaction_controls"
+            if contaminated
+            else "reaction_dialog_stalled",
         )
         diagnostics["elapsed_ms"] = int((time.monotonic() - started) * 1000)
         return ReactionScrapeResult(raw, False, toolbar_exact, diagnostics)
@@ -1567,17 +1820,26 @@ async def scrape_facebook_post(
     # browser state. It is both faster and less ambiguous than Facebook's
     # permalink overlay, whose DOM often retains unrelated background posts.
     surface: Locator | None = None
+
+    async def visible_surface(candidate: Locator | None) -> Locator | None:
+        if candidate is None:
+            return None
+        try:
+            return candidate if await candidate.is_visible() else None
+        except Exception:
+            return None
+
     try:
         if _normalize_url(page.url) == _normalize_url(page_url):
-            surface = await _locate_post_surface(
-                page, permalink, timeout_seconds=3.0
+            surface = await visible_surface(
+                await _locate_post_surface(page, permalink, timeout_seconds=3.0)
             )
     except RuntimeError:
         surface = None
 
     if surface is None:
-        surface = await _recover_post_surface_from_feed(
-            page, page_url, permalink
+        surface = await visible_surface(
+            await _recover_post_surface_from_feed(page, page_url, permalink)
         )
 
     if surface is None:
@@ -1586,30 +1848,51 @@ async def scrape_facebook_post(
         interruption = await _detect_interruption(page)
         if interruption:
             raise RuntimeError(f"Facebook interruption: {interruption}")
-        surface = await _locate_post_surface(page, permalink)
+        surface = await visible_surface(await _locate_post_surface(page, permalink))
+        if surface is None:
+            raise RuntimeError(
+                "Facebook rendered only a hidden/stale copy of the target post"
+            )
 
     now = datetime.now(FACEBOOK_TIMEZONE)
+    platform_id = _platform_content_id(permalink)
     post_text = ""
     labels: list[str] = []
+    action_counts: dict[str, tuple[int, bool, str]] = {}
     for _ in range(3):
         candidate_text = await _extract_post_text(surface)
         candidate_labels = await _engagement_labels(surface)
+        candidate_action_counts = await _engagement_action_counts(surface)
         if candidate_text:
             post_text = candidate_text
         if candidate_labels:
             labels = candidate_labels
+        if candidate_action_counts:
+            action_counts = candidate_action_counts
         action_text = " ".join(labels).casefold()
-        if post_text and ("like" in action_text or "share" in action_text):
+        if post_text and (
+            "like" in action_text
+            or "share" in action_text
+            or bool(action_counts)
+        ):
             break
         await asyncio.sleep(0.4)
     if surface is None:
         raise RuntimeError("Facebook post surface disappeared during extraction")
 
-    total_shares = _aggregate_metric(labels, "shares")
-    total_comments = _aggregate_metric(labels, "comments")
+    total_shares = action_counts.get("shares", (None, False, ""))[0]
+    if total_shares is None:
+        total_shares = _aggregate_metric(labels, "shares")
+    total_comments = action_counts.get("comments", (None, False, ""))[0]
+    if total_comments is None:
+        total_comments = _aggregate_metric(labels, "comments")
     timestamp_result = await _extract_timestamp(surface, now)
     post_timestamp = timestamp_result.value
-    reaction_result = await extract_reaction_breakdown(page, surface)
+    reaction_result = await extract_reaction_breakdown(
+        page,
+        surface,
+        displayed_total_hint=action_counts.get("reactions"),
+    )
 
     try:
         grouped = compute_reaction_metrics(reaction_result.raw_reactions)
@@ -1620,7 +1903,6 @@ async def scrape_facebook_post(
         )
         grouped = _null_grouped_reactions()
 
-    platform_id = _platform_content_id(permalink)
     identity = platform_id or _normalize_url(permalink) or (
         hashlib.sha256(
             f"{post_text}\x1f{post_timestamp.isoformat() if post_timestamp else ''}".encode()
@@ -1757,6 +2039,34 @@ def _write_facebook_json(path: str, documents: list[dict[str, Any]]) -> None:
     os.replace(temporary_path, path)
 
 
+def _write_facebook_report(path: str, report: dict[str, Any]) -> None:
+    """Atomically replace the per-run diagnostic report, including failures."""
+    temporary_path = f"{path}.tmp"
+    with open(temporary_path, "w", encoding="utf-8") as handle:
+        json.dump(
+            report,
+            handle,
+            ensure_ascii=False,
+            indent=2,
+            default=_facebook_json_default,
+        )
+    os.replace(temporary_path, path)
+
+
+async def _capture_facebook_debug_screenshot(
+    page: Page, cookie_path: str, prefix: str
+) -> str | None:
+    debug_dir = os.path.join(os.path.dirname(cookie_path), "debug")
+    os.makedirs(debug_dir, exist_ok=True)
+    screenshot_path = os.path.join(debug_dir, f"{prefix}_{int(time.time())}.png")
+    try:
+        await page.screenshot(path=screenshot_path)
+    except Exception:
+        return None
+    print(f"[DEBUG] Screenshot saved: {screenshot_path}")
+    return screenshot_path
+
+
 async def run_facebook_page_scrape(
     db,
     page_url: str,
@@ -1785,6 +2095,18 @@ async def run_facebook_page_scrape(
     debug_path = os.path.join(debug_dir, "facebook_data.json")
     report_path = os.path.join(debug_dir, "facebook_run_report.json")
     _write_facebook_json(debug_path, documents)
+    _write_facebook_report(
+        report_path,
+        {
+            "status": "running",
+            "page_url": page_url,
+            "requested_posts": max_posts,
+            "discovered_posts": 0,
+            "saved_documents": 0,
+            "mongo": persistence,
+            "errors": [],
+        },
+    )
     await asyncio.to_thread(
         db.contents.update_many,
         {
@@ -1806,38 +2128,109 @@ async def run_facebook_page_scrape(
             
             await _goto_recoverable(page, page_url)
             await _dismiss_facebook_overlays(page)
+
+            interruption = await _detect_interruption(page)
+            if interruption:
+                message = _facebook_interruption_message(interruption, page_url)
+                screenshot_path = await _capture_facebook_debug_screenshot(
+                    page, cookie_path, f"facebook_{interruption}"
+                )
+                _write_facebook_report(
+                    report_path,
+                    {
+                        "status": "failed",
+                        "page_url": page_url,
+                        "requested_posts": max_posts,
+                        "discovered_posts": 0,
+                        "saved_documents": 0,
+                        "mongo": persistence,
+                        "errors": [{"phase": "page_open", "error": message}],
+                        "debug_screenshot": screenshot_path,
+                    },
+                )
+                raise RuntimeError(message)
             
             authenticated = await _is_authenticated(page)
             if not authenticated:
-                debug_dir = os.path.join(os.path.dirname(cookie_path), "debug")
-                os.makedirs(debug_dir, exist_ok=True)
-                screenshot_path = os.path.join(debug_dir, f"auth_failed_{int(time.time())}.png")
-                try:
-                    await page.screenshot(path=screenshot_path)
-                    print(f"[DEBUG] Screenshot saved: {screenshot_path}")
-                except Exception:
-                    pass
-                raise RuntimeError(
+                screenshot_path = await _capture_facebook_debug_screenshot(
+                    page, cookie_path, "auth_failed"
+                )
+                message = (
                     "Facebook authentication failed. The cookies in cookies.json are expired or invalid. "
                     "Sign in to Facebook in your browser and export fresh cookies."
                 )
+                _write_facebook_report(
+                    report_path,
+                    {
+                        "status": "failed",
+                        "page_url": page_url,
+                        "requested_posts": max_posts,
+                        "discovered_posts": 0,
+                        "saved_documents": 0,
+                        "mongo": persistence,
+                        "errors": [{"phase": "authentication", "error": message}],
+                        "debug_screenshot": screenshot_path,
+                    },
+                )
+                raise RuntimeError(message)
             
             print("[INFO] Facebook authentication successful.")
-            permalinks = await _discover_post_permalinks(page, page_url, max_posts)
+            try:
+                permalinks = await _discover_post_permalinks(
+                    page, page_url, max_posts
+                )
+            except Exception as exc:
+                screenshot_path = await _capture_facebook_debug_screenshot(
+                    page, cookie_path, "discovery_failed"
+                )
+                _write_facebook_report(
+                    report_path,
+                    {
+                        "status": "failed",
+                        "page_url": page_url,
+                        "requested_posts": max_posts,
+                        "discovered_posts": 0,
+                        "saved_documents": 0,
+                        "mongo": persistence,
+                        "errors": [
+                            {
+                                "phase": "discovery",
+                                "error": f"{type(exc).__name__}: {exc}",
+                            }
+                        ],
+                        "debug_screenshot": screenshot_path,
+                    },
+                )
+                raise
             
             if not permalinks:
-                debug_dir = os.path.join(os.path.dirname(cookie_path), "debug")
-                os.makedirs(debug_dir, exist_ok=True)
-                screenshot_path = os.path.join(debug_dir, f"no_posts_{int(time.time())}.png")
-                try:
-                    await page.screenshot(path=screenshot_path)
-                    print(f"[DEBUG] Screenshot saved: {screenshot_path}")
-                except Exception:
-                    pass
-                raise RuntimeError(
-                    "Facebook did not render any post permalinks after multiple attempts. "
-                    "Check the screenshot in the debug folder for details."
+                screenshot_path = await _capture_facebook_debug_screenshot(
+                    page, cookie_path, "no_posts"
                 )
+                interruption = await _detect_interruption(page)
+                message = (
+                    _facebook_interruption_message(interruption, page_url)
+                    if interruption
+                    else (
+                    "Facebook did not render any post permalinks after multiple attempts. "
+                        "The page may have no public posts or Facebook may have "
+                        "temporarily changed its feed response."
+                    )
+                )
+                _write_facebook_report(
+                    report_path,
+                    {
+                        "status": "failed",
+                        "page_url": page_url,
+                        "requested_posts": max_posts,
+                        "discovered_posts": 0,
+                        "saved_documents": 0,
+                        "mongo": persistence,
+                        "errors": [{"phase": "discovery", "error": message}],
+                        "debug_screenshot": screenshot_path,
+                    },
+                )
+                raise RuntimeError(message)
             
             print(f"[INFO] Discovered {len(permalinks)} unique post permalink(s).")
             if len(permalinks) < max_posts:
@@ -1899,19 +2292,19 @@ async def run_facebook_page_scrape(
                     f"  Post {item['index']}: {item['error']}"
                     for item in post_errors[:5]
                 )
-                with open(report_path, "w", encoding="utf-8") as handle:
-                    json.dump(
-                        {
-                            "page_url": page_url,
-                            "requested_posts": max_posts,
-                            "discovered_permalinks": permalinks,
-                            "saved_documents": 0,
-                            "errors": post_errors,
-                        },
-                        handle,
-                        ensure_ascii=False,
-                        indent=2,
-                    )
+                _write_facebook_report(
+                    report_path,
+                    {
+                        "status": "failed",
+                        "page_url": page_url,
+                        "requested_posts": max_posts,
+                        "discovered_permalinks": permalinks,
+                        "discovered_posts": len(permalinks),
+                        "saved_documents": 0,
+                        "mongo": persistence,
+                        "errors": post_errors,
+                    },
+                )
                 raise RuntimeError(
                     f"All {len(post_errors)} post(s) failed to scrape:\n{error_summary}"
                 )
@@ -1924,20 +2317,18 @@ async def run_facebook_page_scrape(
         f"{persistence['modified']} updated; no Facebook comments written."
     )
     _write_facebook_json(debug_path, documents)
-    with open(report_path, "w", encoding="utf-8") as handle:
-        json.dump(
-            {
-                "page_url": page_url,
-                "requested_posts": max_posts,
-                "discovered_posts": len(permalinks),
-                "saved_documents": len(documents),
-                "mongo": persistence,
-                "errors": post_errors,
-            },
-            handle,
-            ensure_ascii=False,
-            indent=2,
-        )
+    _write_facebook_report(
+        report_path,
+        {
+            "status": "completed" if not post_errors else "partial",
+            "page_url": page_url,
+            "requested_posts": max_posts,
+            "discovered_posts": len(permalinks),
+            "saved_documents": len(documents),
+            "mongo": persistence,
+            "errors": post_errors,
+        },
+    )
     print(f"[JSON] Wrote {len(documents)} document(s) to {debug_path}")
     return documents
 

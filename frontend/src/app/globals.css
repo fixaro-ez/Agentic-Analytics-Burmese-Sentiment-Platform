@@ -31,6 +31,70 @@
   --sidebar-accent-foreground: oklch(0.205 0.042 265.755);
   --sidebar-border: oklch(0.922 0.004 286.32);
   --sidebar-ring: oklch(0.708 0.015 286.067);
+
+  /* ---- v3 data tokens (theme-agnostic; BI-NLP-Dashboard-UIUX-Architecture-v3 §3) ---- */
+  /* §3.2 Sentiment encoding — teal/coral/amber, colorblind-safe */
+  --sentiment-positive: #2dd4a7;
+  --sentiment-negative: #ff6b5e;
+  --sentiment-neutral: #e8b339;
+  /* Text-safe companions for light surfaces (all >= 4.5:1 on white). */
+  --sentiment-positive-foreground: #087f68;
+  --sentiment-negative-foreground: #c9342a;
+  --sentiment-neutral-foreground: #806000;
+  --sentiment-on-color: #0b0f14;
+  /* §3.3 Accent & alert */
+  --accent-primary: #5b8def;
+  --accent-hangry: #ff9f5a;
+  --confidence-low: #26343f;
+  --confidence-high: #5b8def;
+  /* §3.4 System & agentic tokens */
+  --alert-critical: #ef4444;
+  --alert-sarcasm: #c77dff;
+  --badge-incomplete: #4b5563;
+  --tag-burglish: #5b8def; /* outline-only usage: border-color, transparent fill */
+  /* §3.6 Competitive benchmarking (entity-series identity) */
+  --entity-self: #5b8def;
+  --entity-compare-1: #38bdf8;
+  --entity-compare-2: #f472b6;
+  /* §3.7 Pipeline status (roles reusing existing hex, per spec) */
+  --pipeline-active: #5b8def;
+  --pipeline-idle: #4b5563;
+  --pipeline-error: #ef4444;
+}
+
+/* v3 dark mode (spec §3.1 surfaces — dark mode is primary) */
+.dark {
+  --background: #0b0f14;
+  --foreground: #e6edf3;
+  --card: #131a21;
+  --card-foreground: #e6edf3;
+  --popover: #1b242c;
+  --popover-foreground: #e6edf3;
+  --primary: #5b8def;
+  --primary-foreground: #0b0f14;
+  --secondary: #1b242c;
+  --secondary-foreground: #e6edf3;
+  --muted: #1b242c;
+  --muted-foreground: #8b98a5;
+  --accent: #1b242c;
+  --accent-foreground: #e6edf3;
+  --destructive: #ef4444;
+  --destructive-foreground: #e6edf3;
+  --border: #232e38;
+  --input: #232e38;
+  --ring: #5b8def;
+  --sidebar-background: #0b0f14;
+  --sidebar-foreground: #e6edf3;
+  --sidebar-primary: #5b8def;
+  --sidebar-primary-foreground: #0b0f14;
+  --sidebar-accent: #1b242c;
+  --sidebar-accent-foreground: #e6edf3;
+  --sidebar-border: #232e38;
+  --sidebar-ring: #5b8def;
+  /* The v3 visualization colors are readable as text on the primary dark UI. */
+  --sentiment-positive-foreground: #2dd4a7;
+  --sentiment-negative-foreground: #ff6b5e;
+  --sentiment-neutral-foreground: #e8b339;
 }
 
 @theme inline {
@@ -61,8 +125,35 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  /* v3 data tokens → utilities (text-sentiment-positive, bg-alert-critical, ...) */
+  --color-sentiment-positive: var(--sentiment-positive);
+  --color-sentiment-negative: var(--sentiment-negative);
+  --color-sentiment-neutral: var(--sentiment-neutral);
+  --color-sentiment-positive-foreground: var(
+    --sentiment-positive-foreground
+  );
+  --color-sentiment-negative-foreground: var(
+    --sentiment-negative-foreground
+  );
+  --color-sentiment-neutral-foreground: var(--sentiment-neutral-foreground);
+  --color-sentiment-on-color: var(--sentiment-on-color);
+  --color-accent-hangry: var(--accent-hangry);
+  --color-confidence-low: var(--confidence-low);
+  --color-confidence-high: var(--confidence-high);
+  --color-alert-critical: var(--alert-critical);
+  --color-alert-sarcasm: var(--alert-sarcasm);
+  --color-badge-incomplete: var(--badge-incomplete);
+  --color-tag-burglish: var(--tag-burglish);
+  --color-entity-self: var(--entity-self);
+  --color-entity-compare-1: var(--entity-compare-1);
+  --color-entity-compare-2: var(--entity-compare-2);
+  --color-pipeline-active: var(--pipeline-active);
+  --color-pipeline-idle: var(--pipeline-idle);
+  --color-pipeline-error: var(--pipeline-error);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-myanmar: var(--font-noto-myanmar), var(--font-geist-sans), ui-sans-serif,
+    system-ui, sans-serif;
   --radius-lg: var(--radius);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -71,7 +162,14 @@
 }
 
 body {
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Burmese Unicode renders with Noto Sans Myanmar; Burglish/English keeps the
+   default UI font (v3 spec §5.4 — the mixed column is intentional). */
+[lang="my"] {
+  font-family: var(--font-noto-myanmar), var(--font-geist-sans), Arial,
+    Helvetica, sans-serif;
 }
 
 * {

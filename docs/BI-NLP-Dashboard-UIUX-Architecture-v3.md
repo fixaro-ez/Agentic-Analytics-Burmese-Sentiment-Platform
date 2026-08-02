@@ -3,7 +3,7 @@
 **Stack context:** Next.js · PostgreSQL Star Schema · XLM-RoBERTa two-stage ABSA · Facebook + Foodpanda ETL
 **Team size:** 6 engineers · **Theme:** Dark mode primary
 
-**v3 changelog:** Adds Section 5.5 (Competitor Share of Voice & Benchmarking), 5.6 (Marketing vs. Operations Impact Panel), 5.7 (Data Pipeline & ETL Lineage Health Monitor), and 5.8 (Scrape Management & Entity Configuration) — plus the supporting design tokens they require in Sections 3.6–3.7. Also formalizes Section 5.1's AI Response Card into its four-layer anatomy (summary → interactive chart/table → collapsible SQL → actions), adding dynamic Chart/Table view switching and a "View Raw Reviews" action alongside Pin to Dashboard and Export CSV. Everything else in Sections 1–5.4 is unchanged except two short cross-reference additions (§1.2, §"Suggested Next Steps") pointing at the new material.
+**v3 changelog:** Adds Section 5.5 (Competitor Share of Voice & Benchmarking), 5.6 (Data Pipeline & ETL Lineage Health Monitor), and 5.7 (Scrape Management & Entity Configuration) — plus the supporting design tokens they require in Sections 3.6–3.7. Also formalizes Section 5.1's AI Response Card into its four-layer anatomy (summary → interactive chart/table → collapsible SQL → actions), adding dynamic Chart/Table view switching and a "View Raw Reviews" action alongside Pin to Dashboard and Export CSV. Everything else in Sections 1–5.4 is unchanged except two short cross-reference additions (§1.2, §"Suggested Next Steps") pointing at the new material.
 
 ---
 
@@ -16,7 +16,7 @@ The dashboard is built as a strict grid so panels can be reordered/resized later
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ TOPBAR (sticky)                                                               │
-│ Logo   Entity: [OMUK ▾]  [+ Compare vs Lotteria]   Date Range: [Last 30d ▾]   │
+│ Logo   Entity: [OMUK ▾]                       Date Range: [Last 30d ▾]          │
 │                       Sync: ● 12 min ago  [🔥 Crisis · 2]  [Escalation Q · 14]│
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ KPI STRIP — 4–5 cards, horizontal scroll on narrow viewports                  │
@@ -47,24 +47,23 @@ The dashboard is built as a strict grid so panels can be reordered/resized later
 
 **Interaction notes**
 - Every chart is a filter: clicking an aspect bar, radar axis, or time-series segment narrows the whole page (breadcrumb trail shows active filters, one-click clear).
-- The Entity Switcher supports single-brand or side-by-side compare mode; compare mode duplicates color-coded series rather than opening a second page.
+- The Entity Switcher controls the primary scope. Side-by-side comparison is configured locally inside the Aspect Radar, Competitor Benchmark, and Data Mining views.
 - KPI cards are clickable and deep-link to the relevant panel already filtered/scrolled into view (progressive disclosure, not a redirect to a separate page).
 
 ### 1.2 Global Navigation (updated)
 
-Adding two new primary destinations alongside the Overview and the existing Escalation Queue:
+Adding one new primary destination alongside the Overview and the existing Escalation Queue:
 
 ```
 Sidebar / top nav order:
 1. Overview              (Section 1)
 2. Escalation Queue       (Section 4, original doc)
-3. Agentic Inbox    🔥2   (Section 5.2 — badge shows open crisis-severity alerts)
-4. Data Mining & Insights (Section 5.3)
+3. Data Mining & Insights (Section 5.3)
 ```
 
 "Chat with Data" is deliberately **not** a nav destination — it's a global overlay (drawer), reachable from every page via `Cmd/Ctrl + K` or the floating action button, so an analyst never has to leave their current filtered context to ask a question.
 
-The same principle holds for the three v3 additions in Sections 5.5–5.7: **Competitor Benchmark** is a page-level toggle on the Overview (or an auto-activated state of Compare Mode), **Marketing vs. Operations Impact** is an expandable inline panel on the Overview, and **ETL Pipeline Health** opens from the existing topbar sync badge. None of them earns a fifth sidebar item — each is scoped to reuse an entry point that already exists rather than adding navigation surface area.
+The same principle holds for the v3 additions: **Competitor Benchmark** is a page-level toggle on the Overview with its own head-to-head selectors, and **ETL Pipeline Health** opens from the existing topbar sync badge. Neither earns another sidebar item — each reuses an existing entry point.
 
 ---
 
@@ -128,22 +127,22 @@ Avoid pure red/green — they're the single most common colorblind-accessibility
 | `accent-hangry` | `#FF9F5A` | Reserved *only* for the Hangry Index — a distinct warm orange so this custom metric visually stands apart from standard negative-sentiment coral |
 | `confidence-ramp` | `#26343F → #5B8DEF` | Single-hue saturation ramp (low→high confidence) — deliberately not red/yellow/green so it's never confused with sentiment |
 
-### 3.4 System & Agentic Tokens (new)
+### 3.4 System & Risk Tokens (new)
 
 These exist because Section 5 introduces states that are *not* sentiment but still need urgency signaling — reusing the sentiment palette for them would violate the platform's own color-meaning rules below.
 
 | Token | Hex | Usage |
 |---|---|---|
-| `alert-critical` | `#EF4444` | Crisis banners, topbar badge, agentic inbox unread-critical indicator — a hotter, more saturated red than `Negative` so a genuine crisis visually outranks routine negative sentiment |
+| `alert-critical` | `#EF4444` | Pipeline failures and operational-disconnect warnings — a hotter, more saturated red than `Negative` so system urgency stays distinct from routine negative sentiment |
 | `alert-sarcasm` | `#C77DFF` | `haha_ratio` sarcasm-risk badge — a distinct purple family, so "this looks positive but might be mockery" never gets mistaken for Neutral (amber) or Positive (teal) |
 | `badge-incomplete` | `#4B5563` (on `bg-elevated`) | "Data Incomplete" badge — deliberately desaturated/gray so it reads as an *absence of information*, not a data point competing with sentiment colors |
 | `tag-burglish` | outline only, `border-color: accent-primary`, transparent fill | `[Burglish]` language tag — outline-only so it doesn't compete visually with sentiment fills inside a dense table row |
 
 ### 3.5 Rules of use
 
-- Sentiment colors are reserved exclusively for sentiment. Don't reuse coral or teal for unrelated states (errors, success toasts, crisis alerts) — that overloads the color's meaning. This is precisely why Section 3.4 exists as a separate token set rather than reusing `Negative` for crisis banners.
+- Sentiment colors are reserved exclusively for sentiment. Don't reuse coral or teal for unrelated states such as errors or success toasts — that overloads the color's meaning. This is why Section 3.4 keeps system urgency separate from sentiment.
 - Cap saturated color to data only. Chrome (nav, borders, backgrounds) stays neutral gray-blue so the eye goes straight to what changed.
-- Every sentiment color pairing in a legend or chart also gets a text label or icon — never rely on a color key alone. The same rule applies to `alert-critical` and `alert-sarcasm`: always pair with an icon (🔥 for crisis, 😏 or a distinct "sarcasm" glyph) and a text label.
+- Every sentiment color pairing in a legend or chart also gets a text label or icon — never rely on a color key alone. The same rule applies to `alert-critical` and `alert-sarcasm`: always pair them with an icon and a text label.
 
 ### 3.6 Competitive Benchmarking Tokens (new, v3)
 
@@ -160,7 +159,7 @@ Share of Voice and head-to-head comparisons (Section 5.5) need to encode *which 
 
 ### 3.7 System & Pipeline Status Tokens (new roles, reused hex, v3)
 
-The ETL Health Monitor (Section 5.7) needs an Active / Idle / Error vocabulary that is explicitly **not** sentiment — even though "healthy" invites reaching for `Positive` teal. Per §3.5, sentiment colors are reserved exclusively for sentiment, so this table assigns *existing, non-sentiment* tokens a new role rather than minting new hex values.
+The ETL Health Monitor (Section 5.6) needs an Active / Idle / Error vocabulary that is explicitly **not** sentiment — even though "healthy" invites reaching for `Positive` teal. Per §3.5, sentiment colors are reserved exclusively for sentiment, so this table assigns *existing, non-sentiment* tokens a new role rather than minting new hex values.
 
 | Token | Hex (existing) | New role |
 |---|---|---|
@@ -173,7 +172,7 @@ The ETL Health Monitor (Section 5.7) needs an Active / Idle / Error vocabulary t
 ## 4. UX Best Practices for Daily Analyst Use
 
 **Reduce reorientation cost**
-- Keep the entity switcher and date range sticky across every page, including the escalation queue and the new Agentic Inbox / Data Mining tabs — analysts shouldn't have to re-establish context when moving between views.
+- Keep the entity switcher and date range sticky on analysis surfaces that consume them: Dashboard, Analytics, and Data Mining. Hide them on Entities, Scraping, and Chat with Data so page-level controls remain relevant to the task at hand.
 - Persist filters in the URL (query params), not just client state, so a filtered view is bookmarkable and shareable in Slack/email.
 
 **Progressive disclosure over density**
@@ -191,7 +190,7 @@ The ETL Health Monitor (Section 5.7) needs an Active / Idle / Error vocabulary t
 
 **Consistency reduces cognitive load more than any single feature**
 - Use one fixed icon per business aspect (Product Quality, Fulfillment & Speed, Price & Value, Digital Experience, Customer Support, Variety & Availability) and reuse it everywhere — radar axis label, table column, filter chip, chart legend, and the new Association Rule Network / Cluster views in Section 5.3. Consistent iconography lets analysts pattern-match instead of re-reading labels.
-- Keep action verb labels consistent end-to-end: if a button says "Approve," the resulting toast should say "Approved," not "Saved" or "Updated." This now also applies to the Agentic Inbox — "Draft Sent for Review" is a distinct, consistent status from "Draft Approved" or "Draft Rejected."
+- Keep action verb labels consistent end-to-end: if a button says "Approve," the resulting toast should say "Approved," not "Saved" or "Updated."
 
 **Respect daily-use fatigue**
 - Skeleton loaders instead of spinners — reduces perceived wait and layout jump on a page analysts open dozens of times a day. This includes the AI chat drawer: stream tokens in as they arrive (via the AI SDK) rather than showing a spinner until the full answer is ready.
@@ -200,9 +199,9 @@ The ETL Health Monitor (Section 5.7) needs an Active / Idle / Error vocabulary t
 
 ---
 
-## 5. Advanced Agentic, Data Mining & Platform Extensions
+## 5. Advanced Analytics, Data Mining & Platform Extensions
 
-This section specifies seven feature modules previously scoped in discussion but missing from earlier drafts: four introduced in v2 (5.1–5.4) and three new in v3 — **5.5 Competitor Share of Voice & Benchmarking**, **5.6 Marketing vs. Operations Impact Panel**, and **5.7 Data Pipeline & ETL Lineage Health Monitor**. Each follows the same format as Sections 1–4: layout, components (mapped to the Section 2 stack), interaction rules, and states/edge-cases.
+This section specifies feature modules previously scoped in discussion but missing from earlier drafts: four introduced in v2 (5.1–5.4), plus **5.5 Competitor Share of Voice & Benchmarking** and **5.6 Data Pipeline & ETL Lineage Health Monitor** in v3. Each follows the same format as Sections 1–4: layout, components (mapped to the Section 2 stack), interaction rules, and states/edge-cases.
 
 ### 5.1 "Chat with Data" (Text-to-SQL AI Interface)
 
@@ -258,7 +257,7 @@ This section specifies seven feature modules previously scoped in discussion but
 - Layer ② dynamic view switching: shadcn `Tabs`/`ToggleGroup` — the same control pattern already reused for the Overview/Competitor Benchmark toggle in §5.5 — flipping between a compact Tremor `BarChart`/`LineChart` and a compact Tremor `Table` for the identical result set.
 - Layer ③ generated SQL: collapsible `<details>`-style shadcn `Collapsible`, syntax-highlighted with Shiki, monospace, copy-to-clipboard button.
 - Layer ② chart/table: reuse actual Tremor primitives (`BarChart`, `Table`, KPI `Card`) at a reduced/compact size — **not** a screenshot or a separate mini-chart library, so a pinned result renders identically wherever it lands.
-- Layer ④ action row: three shadcn `Button`s (`ghost`/`outline` variant to stay visually secondary to the summary and chart above them), consistent with the low-emphasis button styling used for card-level actions elsewhere (e.g., the Agentic Inbox cards in §5.2).
+- Layer ④ action row: three shadcn `Button`s (`ghost`/`outline` variant to stay visually secondary to the summary and chart above them).
 - Streaming: Vercel AI SDK `useChat`, hitting a Next.js route handler that (a) sends the NL query + schema context to the LLM to produce SQL, (b) executes the SQL read-only against Postgres, (c) returns both the SQL and result rows for the client to render.
 
 **Interaction rules:**
@@ -274,57 +273,9 @@ This section specifies seven feature modules previously scoped in discussion but
 
 ---
 
-### 5.2 Agentic AI Command Center & Autonomous Crisis Alerts
-
-**Placement:** A dedicated **"Agentic Inbox"** nav tab (badge shows count of unresolved critical alerts, using `alert-critical` red) plus a slim, dismissible topbar banner that appears app-wide the moment a new crisis-severity event fires — so an analyst on the Overview page doesn't have to be on the Inbox tab to notice.
-
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ TOPBAR BANNER (appears on any page, dismissible, non-blocking)               │
-│ 🔥 Crisis Alert — negativity_ratio 0.08 on OMUK Foodpanda (last 2h)          │
-│                                            [ View in Agentic Inbox ]  [×]    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ AGENTIC INBOX                                                                 │
-│ Filters: [ All ] [ Crisis ] [ Sarcasm Risk ] [ Resolved ]     Sort: Newest ▾ │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ ┌────────────────────────────────────────────────────────────────────────┐   │
-│ │ 🔥 CRISIS · negativity_ratio 0.08 (threshold 0.05)                     │   │
-│ │ OMUK Foodpanda · Fulfillment & Speed · last 2h · 46 reviews            │   │
-│ │                                                                          │   │
-│ │ [ 🇲🇲 Draft AI Response ]   [ View Reviews ]   [ Mark Resolved ]        │   │
-│ └────────────────────────────────────────────────────────────────────────┘   │
-│ ┌────────────────────────────────────────────────────────────────────────┐   │
-│ │ 😏 SARCASM RISK · haha_ratio 34% on FB post #4821                      │   │
-│ │ "Wow, 2 hour delivery, amazing service 👏" — posted 18:12               │   │
-│ │                                                                          │   │
-│ │ [ View Post ]   [ Flag for Review ]                                    │   │
-│ └────────────────────────────────────────────────────────────────────────┘   │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ AGENT ACTION HISTORY (audit log, chronological, read-only)                    │
-│ 18:45  Slack alert → Operations Manager (crisis #219)                        │
-│ 18:12  Flagged FB post #4821 for sarcasm review                              │
-│ 17:03  Draft response generated, awaiting CS approval (ticket #217)          │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Components (mapped to Section 2 stack):**
-- Crisis/sarcasm cards: shadcn `Card` + `Badge` (using `alert-critical` / `alert-sarcasm` tokens from 3.4), laid out in the same `Card` grid pattern as the KPI strip for visual consistency.
-- Filter bar: shadcn `Tabs` or `ToggleGroup`, same pattern as the Aspect Breakdown's sort control.
-- Action History: TanStack Table in a compact, non-virtualized log view (append-only, low row count relative to the escalation queue — virtualization isn't needed here the way it is in Section 4's queue).
-- Response Drafter: opens as a shadcn `Dialog` (not the slide-over drawer — this is a discrete approve/edit/reject action, not an exploratory chat), pre-filled with the AI-drafted Burmese reply, editable textarea, and explicit `[ Send for CS Approval ]` — **never** an auto-send button. A human approval step is a hard requirement for anything customer-facing, not a nice-to-have.
-- Topbar banner: a slim, app-wide toast-like bar (Framer Motion slide-down, used sparingly per the restraint principle in Section 2) — auto-persists until dismissed or resolved, doesn't auto-hide on a timer, since a crisis alert shouldn't disappear just because nobody clicked it fast enough.
-
-**Interaction rules / thresholds:**
-- Crisis trigger: `negativity_ratio > 0.05` (configurable, same "don't hardcode thresholds" principle as the escalation queue's 0.60 confidence cutoff in Section 4).
-- Sarcasm-risk trigger: `haha_ratio > 30%` on a Facebook post — flagged for human review, **never** auto-reclassified as negative; the model surfaces the risk, a person makes the call.
-- Every automated action (Slack ping, draft generation, flag) writes one line to Agent Action History with an exact timestamp — this is the audit trail that makes the "autonomous" part of "autonomous crisis alerts" trustworthy rather than opaque.
-- "Mark Resolved" requires the analyst to pick a resolution reason from a short fixed list (e.g., *False positive / Addressed operationally / Escalated externally*) rather than a bare button — this turns the inbox into a dataset you can later mine for false-positive rate on the 0.05 threshold itself.
-
----
-
 ### 5.3 Data Mining & Insights Tab
 
-**Placement:** Secondary nav tab, **"Data Mining & Insights"**, positioned after Agentic Inbox. Two sub-views selected via an in-page `Tabs` control (not separate routes, so filters/date-range stay in sync): **Association Rules** and **Entity Clusters**.
+**Placement:** Secondary nav tab, **"Data Mining & Insights"**. Two sub-views selected via an in-page `Tabs` control (not separate routes, so filters/date-range stay in sync): **Association Rules** and **Entity Clusters**.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -403,14 +354,14 @@ This section specifies seven feature modules previously scoped in discussion but
 **Interaction rules / data rules:**
 - `reactions_breakdown_complete = False` → all three ratios render as `N/A` for that post specifically, never `0%`. This is a correctness requirement, not just a display choice: silently coercing missing data to zero would understate both positivity and negativity for that post and skew any aggregate built on top of it.
 - The incomplete-data badge should be scoped per-post in any drill-down (so an analyst can see *which* posts are missing data), and aggregated as a count/percentage at the panel level (*"3 of 46 posts"*) — both levels matter for trust in the aggregate ratios shown above.
-- `haha_ratio > 30%` here is the same threshold that triggers the Sarcasm Risk card in the Agentic Inbox (Section 5.2) — the panel-level badge and the inbox alert must read the exact same underlying field so an analyst never sees the panel say "34%, flagged" while the inbox shows nothing, or vice versa.
+- `haha_ratio > 30%` displays the local Sarcasm Risk badge for human interpretation; it never automatically reclassifies the post's sentiment.
 - Burmese text fields should never be truncated with a naive character-count `substring()` — Unicode grapheme clusters in Myanmar script combine multiple codepoints per visual character, so truncation must be grapheme-aware (e.g., `Intl.Segmenter`) or the risk is literally splitting a character in half mid-render.
 
 ---
 
 ### 5.5 Competitor Share of Voice (SoV) & Benchmarking View
 
-**Placement:** An **"Overview / Competitor Benchmark"** toggle (shadcn `Tabs`/`ToggleGroup`, same control pattern as the sub-view switcher in Section 5.3) in the header row above the KPI strip — or auto-activated the moment "Compare Mode" is engaged from the topbar Entity Switcher (Section 1.1's `[+ Compare vs Lotteria]` control), so an analyst who has already opted into comparing entities lands here without needing to discover a second entry point.
+**Placement:** An **"Overview / Competitor Benchmark"** toggle (shadcn `Tabs`/`ToggleGroup`, same control pattern as the sub-view switcher in Section 5.3) in the header row above the KPI strip. The Benchmark view owns its brand, branch, competitor, and date controls so its scope is explicit and does not depend on the global filter bar.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -458,57 +409,8 @@ This section specifies seven feature modules previously scoped in discussion but
 
 ---
 
-### 5.6 Marketing vs. Operations Impact Panel ("Expectation vs. Reality")
+### 5.6 Data Pipeline & ETL Lineage Health Monitor
 
-**Placement:** A collapsible panel appended to the bottom of the Overview grid (§1.1), collapsed by default per §4's progressive-disclosure rule, with an `[Expand ⤢]` action that opens the identical content in a full-width shadcn `Sheet` drawer (reusing the drawer shell established for "Chat with Data" in §5.1) — so the compact card and the deep-dive drawer are one component in two presentation contexts, not two builds.
-
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ MARKETING vs. OPERATIONS IMPACT  ("Expectation vs. Reality")     [Expand ⤢]  │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ TIME-LAGGED CAMPAIGN IMPACT                                                   │
-│                                                                                │
-│  FB post volume (bars)                              Foodpanda sentiment      │
-│   ▂▂▅ ← Post #102 "50% Off"                          (line, next 24–48h)     │
-│  ──────────────┊▓▓▓▓▓▓▓▓lag window▓▓▓▓▓▓▓▓┊──╲                               │
-│   18:00  20:00  ┊                          ┊    ╲___ Fulfillment & Speed     │
-│                  22:00        00:00      +24h        net sentiment          │
-│                                                                                │
-│  Bars = FB post volume/shares at time of posting (tagged by Stage-1 aspect,  │
-│  e.g. `promotes_price`) · Line = Foodpanda aspect sentiment that follows     │
-│  Shaded band = the correlation lag window (default 24–48h, configurable)     │
-│  Correlation strength badge: ● Strong (confidence-ramp token, §3.3)          │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ OPERATIONAL DISCONNECT ALERTS                                                 │
-│ ┌────────────────────────────────────────────────────────────────────────┐   │
-│ │ ⚠ DISCONNECT DETECTED                                                   │   │
-│ │ FB "50% Discount" Post #102 generated 400 shares →                     │   │
-│ │ Foodpanda Fulfillment & Speed sentiment dropped to 85% Negative         │   │
-│ │ within 3 hours (threshold: 70% Negative within 6h)                     │   │
-│ │ [ View Campaign Post ]  [ View Affected Reviews ]  [ Mark Reviewed ]    │   │
-│ └────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                │
-│ Correlation window shown; not a causal claim.                                │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Components (mapped to Section 2 stack):**
-- Panel shell: shadcn `Collapsible` (collapsed by default) plus a shadcn `Sheet` for the expanded view — same shell reused from §5.1, not a new drawer pattern.
-- Time-lagged chart: a Recharts `ComposedChart` (bar + line, dual axis) — the same composed-chart approach already used for "bar overlay: FB engagement spikes" on the main Time-Series Panel in §1.1, extended here to show the *lagged* Foodpanda series rather than the same-day one.
-- Lag-window shading: Recharts `ReferenceArea`, styled at the low-saturation end of `confidence-ramp` (`#26343F`) at partial opacity — deliberately not a sentiment color, since the band communicates a *time window*, not a sentiment measurement (the same reasoning that kept `confidence-ramp` off sentiment hues in §3.3).
-- Correlation-strength badge: shadcn `Badge` on the `confidence-ramp` token — reused here for the same reason it was reused for association-rule confidence in §5.3: correlation strength is a confidence-like measurement, not a sentiment one.
-- Disconnect Alert card: **not** a new alert system — it's routed through the exact same Agentic Inbox card pattern and `alert-critical` token from §5.2, and appends to the same Agent Action History audit log. An analyst already checks one place (the Inbox) for anything urgent; a parallel alert surface here would undercut that.
-
-**Interaction rules:**
-- Lag window (default 24–48h) and the disconnect thresholds (share/engagement floor on the FB side, negativity-within-N-hours ceiling on the Foodpanda side) are configurable, not hardcoded — the same principle already applied to the escalation queue's 0.60 cutoff (§4) and the crisis/sarcasm thresholds (§5.2).
-- Disconnect alert copy always states the exact trigger numbers *and* the threshold, mirroring the crisis-alert copy pattern in §5.2 ("negativity_ratio 0.08 (threshold 0.05)") — never a bare flag with no numbers attached.
-- Clicking a point on the chart deep-links to the source Facebook post and simultaneously filters the Foodpanda review list to the matching time window — consistent with the "every chart is a filter" rule from §1.1.
-- Because correlation isn't causation, the "Correlation window shown; not a causal claim" disclaimer (in `text-muted`) is a permanent fixture of the panel, not a dismissible tooltip — this is the same plain-language-over-vague-icon principle from §4, applied to a statistical-honesty edge case instead of a data-completeness one.
-- Minimum-data guard: if fewer than a configurable minimum of tagged campaign posts fall in the selected date range, the panel shows an explicit "Not enough tagged campaign posts in this range" empty state rather than a misleading thin correlation line — same plain-language empty-state rule as §4.
-
----
-
-### 5.7 Data Pipeline & ETL Lineage Health Monitor
 
 **Placement:** Opens from the existing sticky topbar badge (`Sync: ● 12 min ago`, already specified in §1.1) as a full-width shadcn `Dialog` titled **"System & ETL Health."** This makes a previously static timestamp into a genuine, clickable health signal; the badge itself needs no visual change beyond a hover/clickable state.
 
@@ -537,12 +439,12 @@ This section specifies seven feature modules previously scoped in discussion but
 ```
 
 **Components (mapped to Section 2 stack):**
-- Shell: shadcn `Dialog` (large/full-width variant) — chosen over a `Sheet` because this is a discrete "check and return" diagnostic task with no underlying filtered context to preserve, unlike the exploratory drawers in §5.1/§5.6.
+- Shell: shadcn `Dialog` (large/full-width variant) — chosen over a `Sheet` because this is a discrete "check and return" diagnostic task with no underlying filtered context to preserve, unlike the exploratory drawer in §5.1.
 - Pipeline node flow: a plain flex-row layout of shadcn `Card`s joined by simple SVG/CSS connector arrows — not a chart-library graph, since these are fixed sequential pipeline stages, not a variable dataset.
 - Per-node metrics: Tremor `Metric` + `Text` pairs, reusing the same internal typography scale already established for ratio displays in §5.4.
 - Status pills: shadcn `Badge` using the §3.7 token reuse — `accent-primary` (Active), `badge-incomplete` (Idle), `alert-critical` (Error) — deliberately never `Positive` teal, per §3.5.
 - Node Detail panel: appears on clicking a node. This is a **select**, not a **filter** — the one other explicit exception to §1.1's "every chart is a filter" rule, alongside the Data Mining tab's density exception already flagged in §5.3, so it doesn't read as an inconsistency.
-- Postgres load-status table: TanStack Table, compact and non-virtualized — same low-row-count, append-heavy pattern already used for Agent Action History in §5.2.
+- Postgres load-status table: TanStack Table, compact and non-virtualized for this low-row-count diagnostic view.
 - Force Refresh: TanStack Query manual refetch, with the numbers updating via a skeleton-loader micro-state rather than a full-dialog spinner, per §4's daily-use-fatigue principle.
 
 **Interaction rules:**
@@ -555,7 +457,7 @@ This section specifies seven feature modules previously scoped in discussion but
 
 ---
 
-### 5.8 Scrape Management & Entity Configuration
+### 5.7 Scrape Management & Entity Configuration
 
 **Placement:** Opens from a **"[⚙ Scrape Manager]"** button in the topbar, adjacent to the existing sync badge — or as a keyboard shortcut (`Cmd/Ctrl + Shift + S`). Renders as a full-width shadcn `Sheet` drawer (reusing the drawer shell from §5.1) so the analyst never leaves their current dashboard context. This replaces the current CLI-only workflow (`python -m burmese_absa`) with a guided, interactive UI that eliminates manual URL pasting and parameter typing.
 
@@ -645,7 +547,7 @@ This section specifies seven feature modules previously scoped in discussion but
 ```
 
 **Components (mapped to Section 2 stack):**
-- Shell: shadcn `Sheet` (same drawer pattern as §5.1, §5.6) — preserves the underlying dashboard context.
+- Shell: shadcn `Sheet` (same drawer pattern as §5.1) — preserves the underlying dashboard context.
 - Saved Entities list: TanStack Table, compact rows with per-row action buttons (shadcn `Button` ghost variant). Status pill uses §3.7 tokens — `accent-primary` for healthy, `badge-incomplete` gray for stale (>24h since last scrape, configurable).
 - New Scrape wizard: shadcn `Dialog` (stepped, ~600px wide) with source selection as large card buttons (not a dropdown — three options, always visible), URL input with live validation (detects Facebook vs Foodpanda and auto-selects source if user pastes before choosing), and entity name auto-derived via the same logic as the current CLI `derive_foodpanda_entity_name` / `_resolved_entity_name` — user can override before saving.
 - Facebook max-posts control: shadcn `Select` with preset values (5/10/20/50) plus a "Custom" option that reveals a numeric input — eliminates the current CLI free-text step.
@@ -656,7 +558,7 @@ This section specifies seven feature modules previously scoped in discussion but
 **Interaction rules:**
 - **One-click scrape for saved entities:** the `[ Scrape Now ]` button on a saved entity card immediately starts a scrape with the entity's stored URL and last-used parameters — no wizard, no URL re-entry. This is the single highest-leverage improvement over the current CLI flow for entities you scrape repeatedly.
 - **URL auto-detection:** when a URL is pasted in the New Scrape wizard, the source type (Facebook/Foodpanda/Blog) is auto-selected based on domain matching (`facebook.com` → Facebook, `foodpanda.*` → Foodpanda, anything else → Blog). The user can override, but the happy path requires zero clicks after paste.
-- **Entity name auto-fill:** for Foodpanda, the entity name is derived the same way as the CLI (stripped Burmese "ဝေဖန်သုံးသပ်ချက်များ" prefix, §5.8 fix). For Facebook, it's extracted from the page URL slug or the user's previous entry. The name field is always editable before confirming.
+- **Entity name auto-fill:** for Foodpanda, the entity name is derived the same way as the CLI (stripped Burmese "ဝေဖန်သုံးသပ်ချက်များ" prefix, §5.7 fix). For Facebook, it's extracted from the page URL slug or the user's previous entry. The name field is always editable before confirming.
 - **Validation before launch:** the wizard validates the URL format and (for Facebook) checks that `cookies.json` is present and non-expired on the server before enabling the Start button — a pre-flight check that mirrors the existing CLI `_validate_facebook_cookies` step, surfacing the result in the UI (`✓ Cookies valid (127 found)` or `⚠ Cookies expired — re-export from browser`) instead of failing mid-scrape.
 - **Pipeline chaining:** the optional "Run full pipeline after scrape" checkbox triggers the cleaning → ABSA → PostgreSQL export steps automatically after the scrape completes — replacing the current three-command sequence (`clean_feedbacks` → `run_absa_pipeline` → `export_to_postgres`). Default is off for safety; once the team trusts the automation, it can become a saved preference per entity.
 - **Schedule persistence:** schedules are stored in a new `scrape_schedules` table in Supabase (entity_id, source, cron_expression, params_jsonb, active boolean, last_run, next_run). A Supabase Edge Function or pg_cron job polls due schedules and triggers scrapes via the backend API.
@@ -786,8 +688,6 @@ The scheduled scraping workflow uses Supabase Edge Functions as the orchestratio
 1. Lock the token system (colors, spacing scale, type scale) in a shared `tailwind.config` before any team member starts building panels — this is what prevents six people's work from visually drifting apart. This now explicitly includes the Section 3.4 system/agentic tokens, so nobody reaches for `Negative` coral when they mean `alert-critical`.
 2. Build the escalation queue drawer + keyboard flow first — it's the highest-risk interaction pattern (React Table + focus management + optimistic updates) and best to de-risk early.
 3. Stub the KPI/chart panels with mock data shaped like your real star-schema query output, so swapping in the live PostgreSQL-backed API routes later is a data-layer change only, not a UI rewrite.
-4. **New:** Build the "Chat with Data" drawer second, before the Agentic Inbox or Data Mining tab — it shares the read-only SQL execution layer and streaming infrastructure (Vercel AI SDK + route handler) that the Automated Response Drafter in Section 5.2 will also depend on, so building it first avoids duplicating that plumbing later.
-5. **New:** Treat the crisis-alert and sarcasm-risk thresholds (0.05, 30%) as config values from day one, not constants — Section 4's escalation-queue threshold already established this pattern; carry it through consistently rather than hardcoding the new thresholds and having to retrofit configurability under pressure once real usage reveals they need tuning.
-6. **New (v3):** Lock the Section 3.6 entity-series tokens (`entity-self`, `entity-compare-1`, `entity-compare-2`) before anyone builds the SoV chart or Aspect Sentiment Matrix — a benchmarking view where brand colors drift between analysts isn't just visually inconsistent, it's actively misleading about which entity is which.
-7. **New (v3):** Build the Agentic Inbox's alert-card component (Section 5.2) generically enough from the start to accept a third alert type — "disconnect," alongside "crisis" and "sarcasm risk" — so the Operational Disconnect alerts in Section 5.6 route through the existing Inbox and Agent Action History instead of a second, parallel alert system being built later.
-8. **New (v3):** Build the Scrape Manager's entity-save and one-click scrape flow (Section 5.8) before the scheduling feature — the `scrape_entities` table and the saved-entity card pattern are prerequisites for scheduling, and the one-click scrape alone eliminates the current CLI friction for repeated scrapes. The `scrape_runs` audit table should be created alongside it from day one so history is available immediately.
+4. **New:** Build the "Chat with Data" drawer before the Data Mining tab so its read-only SQL execution layer and streaming infrastructure are established early.
+5. **New (v3):** Lock the Section 3.6 entity-series tokens (`entity-self`, `entity-compare-1`, `entity-compare-2`) before anyone builds the SoV chart or Aspect Sentiment Matrix — a benchmarking view where brand colors drift between analysts isn't just visually inconsistent, it's actively misleading about which entity is which.
+6. **New (v3):** Build the Scrape Manager's entity-save and one-click scrape flow (Section 5.7) before the scheduling feature — the `scrape_entities` table and the saved-entity card pattern are prerequisites for scheduling, and the one-click scrape alone eliminates the current CLI friction for repeated scrapes. The `scrape_runs` audit table should be created alongside it from day one so history is available immediately.

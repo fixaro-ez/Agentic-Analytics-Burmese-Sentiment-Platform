@@ -25,6 +25,8 @@ import psycopg2
 import psycopg2.extras
 from pymongo import MongoClient
 
+from burmese_absa.mongo_config import MONGO_URI
+
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding='utf-8', errors='replace')
@@ -40,7 +42,6 @@ except ImportError:
 load_dotenv()
 
 
-MONGO_URI = "mongodb://localhost:27017"
 DB_NAME = "feedback_analytics"
 OUTPUT_FEEDBACKS = "absa_processed_feedbacks"
 OUTPUT_CONTENTS = "absa_processed_contents"
