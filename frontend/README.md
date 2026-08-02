@@ -5,11 +5,14 @@ Next.js 16 (React 19) dashboard for the Agentic Analytics & Burmese Sentiment Pl
 ## Getting Started
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000). Login with Supabase credentials.
+
+For a fresh setup, copy `frontend/.env.local.example` to `frontend/.env.local` and
+set the Supabase URL, Supabase anonymous key, and backend API URL.
 
 ## Scripts
 
@@ -19,6 +22,7 @@ Open [http://localhost:3000](http://localhost:3000). Login with Supabase credent
 | `npm run build` | Production build |
 | `npm run start` | Production server |
 | `npm run lint` | ESLint |
+| `npm test` | Run the complete frontend test suite |
 | `npm run test:mining` | Mining visualization tests |
 | `npm run test:analytics` | Analytics helper tests |
 | `npm run test:scraping` | Scrape helper tests |

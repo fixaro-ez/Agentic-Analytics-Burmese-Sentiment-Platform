@@ -55,7 +55,7 @@ End-to-end data pipeline and Agentic AI platform for decoding Burmese sentiment 
 | Layer | Technology |
 |---|---|
 | Scraping | Python, Playwright (async for Facebook, sync for Foodpanda) |
-| Data Lake | MongoDB (Docker) |
+| Data Lake | MongoDB Atlas (Docker is optional for local development) |
 | Text Cleaning | Custom 5-stage Burmese-aware pipeline (Zawgyi/Unicode/Burglish) |
 | NLP Models | PyTorch, XLM-RoBERTa (HuggingFace) |
 | Data Warehouse | Supabase (PostgreSQL Star Schema) |
@@ -84,6 +84,8 @@ Selenium/
 │   └── nlp/                         # NLP pipeline package
 │       ├── run_absa_pipeline.py     # 2-stage ABSA inference
 │       └── export_to_postgres.py    # MongoDB → Supabase ETL
+├── requirements.txt                 # Complete Python environment
+├── .env.example                     # Root PostgreSQL export configuration template
 ├── backend/                         # FastAPI backend
 │   ├── app/
 │   │   ├── main.py                  # App entry, lifespan, CORS, router mounts
@@ -115,13 +117,15 @@ Selenium/
 │   ├── 20260801_etl_health_scrape_management.sql
 │   ├── 20260801_pipeline_default_and_integrity.sql
 │   ├── 20260801_scrape_schedule_fk_index.sql
-│   └── 20260802_remove_social_post_classifications.sql
+│   ├── 20260802_remove_social_post_classifications.sql
+│   ├── 20260802_security_and_integrity_hardening.sql
+│   └── 20260802_review_level_sentiment_views.sql
 ├── docs/                            # Project documentation
 ├── init_db.sql                      # Base DDL (star schema + scrape management)
 ├── views.sql                        # Analytics views (power API endpoints)
 ├── docker-compose.yaml              # MongoDB container
-├── .env                             # Root env (PG credentials for export script)
-├── cookies.json                     # Facebook auth cookies (gitignored)
+├── .env                             # Local root env (create from .env.example; never commit)
+├── cookies.json                     # Local Facebook cookies (gitignored; not included in ZIP)
 └── AGENTS.md                        # AI agent coding instructions
 ```
 
@@ -131,7 +135,7 @@ Selenium/
 - **Node.js 20+** for the frontend
 - **MongoDB Atlas** (the application database; Docker is optional for local-only MongoDB)
 - **Playwright browsers**: `playwright install chromium`
-- **`cookies.json`** at repo root (for Facebook scraping — export from a logged-in browser session)
+- **`cookies.json`** at repo root for Facebook scraping.export it from a logged-in browser session on the machine that will run Facebook scraping.
 - **`.env`** at repo root with Supabase PostgreSQL credentials:
   ```
   PG_HOST=<your-pooler-host>
@@ -141,6 +145,17 @@ Selenium/
   PG_DBNAME=postgres
   ```
 - **`backend/.env`** with Supabase keys, PG credentials, and Google API key (see `backend/.env.example`)
+
+Before starting, create local environment files from the templates:
+
+```powershell
+Copy-Item .env.example .env
+Copy-Item backend/.env.example backend/.env
+Copy-Item frontend/.env.local.example frontend/.env.local
+```
+
+Set the MongoDB Atlas URI in `backend/.env`. Never put real passwords, API keys,
+Supabase secrets, or `cookies.json` in the ZIP file.
 
 ## Setup
 
