@@ -17,6 +17,7 @@ facebook_run_report.json
 raw_*.json
 debug/
 data/
+dogfood-output/
 
 # IDE / editor
 .vscode/
@@ -40,6 +41,8 @@ chromedriver.exe
 # OpenCode / agent config (local only)
 opencode.json
 skills-lock.json
+.opencode/
+.agents/
 
 # MongoDB data
 mongo_data/
