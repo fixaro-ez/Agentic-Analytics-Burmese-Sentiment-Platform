@@ -109,8 +109,8 @@ async def query_data(question: str) -> ChatResponse:
         "You are a data analyst for a Burmese sentiment analytics platform. "
         "The database has these tables: dim_entities, fact_social_posts, "
         "fact_review_absa_results. Only write SELECT queries. "
-        "The 6 ABSA aspects are: product_or_service_quality, fulfillment_and_speed, "
-        "price_and_value, digital_experience, customer_support, variety_and_availability. "
+        "The 5 ABSA aspects are: product_quality, fulfillment_and_speed, "
+        "price_and_value, staff_and_service, variety_and_availability. "
         "Sentiment labels: Positive, Negative, Neutral."
     )
 
@@ -518,11 +518,10 @@ Facebook/Foodpanda → Playwright → MongoDB → clean → ABSA → export → 
 ### ABSA Aspects
 | Key | Display Name |
 |-----|-------------|
-| `product_or_service_quality` | Product/Service Quality |
+| `product_quality` | Product Quality |
 | `fulfillment_and_speed` | Fulfillment & Speed |
 | `price_and_value` | Price & Value |
-| `digital_experience` | Digital Experience |
-| `customer_support` | Customer Support |
+| `staff_and_service` | Staff & Service |
 | `variety_and_availability` | Variety & Availability |
 
 ### Supabase Project

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -26,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 class UnsafeSQL(ValueError):
     """Raised when a query is not provably read-only."""
+
+
+class QueryScopeMismatch(ValueError):
+    """Raised when generated SQL drops an explicit question scope."""
 
 
 _DISALLOWED_SQL = {
@@ -76,65 +81,50 @@ _DISALLOWED_FUNCTIONS = {
 _CONVERSATIONS: dict[str, dict[str, ChatConversation]] = defaultdict(dict)
 _MAX_CONVERSATIONS_PER_USER = 20
 _MAX_MESSAGES_PER_CONVERSATION = 50
+_GENAI_CLIENT: Any | None = None
+_GENAI_CLIENT_CONFIG: tuple[str, int, int] | None = None
+_QUERY_CACHE: dict[str, tuple[float, tuple[dict[str, Any], ...]]] = {}
+_PLAN_CACHE: dict[
+    tuple[str, str],
+    tuple[float, tuple[str, str, ChatChartSpec | None]],
+] = {}
+_MAX_CACHED_QUERIES = 128
+_MAX_CACHED_PLANS = 128
+_LLM_UNAVAILABLE_UNTIL = 0.0
+_LAST_LLM_ERROR: str | None = None
 
 _ANALYTICS_SCHEMA = """\
--- Tables
-CREATE TABLE dim_entities (
-    entity_id SERIAL PRIMARY KEY,
-    entity_name VARCHAR(255) NOT NULL,
-    platform VARCHAR(50) NOT NULL,
-    platform_metadata JSONB,
-    UNIQUE (entity_name, platform)
-);
-CREATE TABLE fact_social_posts (
-    post_id VARCHAR(100) PRIMARY KEY,
-    entity_id INT REFERENCES dim_entities(entity_id),
-    post_timestamp TIMESTAMP,
-    post_text TEXT,
-    total_reactions INT, like_count INT, love_count INT, haha_count INT,
-    sad_count INT, angry_count INT, care_count INT, wow_count INT,
-    shares_count INT, comments_count INT,
-    positivity_ratio DECIMAL(5,4), negativity_ratio DECIMAL(5,4)
-);
-CREATE TABLE fact_review_absa_results (
-    result_id SERIAL PRIMARY KEY,
-    feedback_id VARCHAR(100) NOT NULL,
-    entity_id INT REFERENCES dim_entities(entity_id),
-    feedback_timestamp TIMESTAMP,
-    raw_text TEXT,
-    aspect_category VARCHAR(100),
-    sentiment_label VARCHAR(20),
-    confidence_score DECIMAL(5,4)
-);
-CREATE TABLE dim_brands (
-    brand_id SERIAL PRIMARY KEY,
-    brand_name VARCHAR(255) NOT NULL UNIQUE,
-    facebook_entity_id INT NOT NULL UNIQUE REFERENCES dim_entities(entity_id)
-);
-CREATE TABLE bridge_brand_foodpanda_shops (
-    brand_id INT NOT NULL REFERENCES dim_brands(brand_id),
-    entity_id INT NOT NULL UNIQUE REFERENCES dim_entities(entity_id),
-    PRIMARY KEY (brand_id, entity_id)
-);
--- Views
--- v_entity_sentiment_overview: entity_id, entity_name, platform, total_reviews,
---   positive_count, negative_count, neutral_count, positive_ratio, negative_ratio, avg_confidence
--- v_aspect_breakdown: aspect_category, sentiment_label, count, avg_confidence
--- v_sentiment_daily_trends: feedback_date, entity_id, entity_name, platform,
---   total_reviews, positive_count, negative_count, neutral_count, positive_ratio
--- v_facebook_engagement: entity_id, entity_name, total_posts, total_reactions,
---   total_shares, total_comments, avg_positivity_ratio, avg_negativity_ratio
--- v_entity_aspect_summary: entity_id, entity_name, platform, aspect_category,
---   sentiment_label, count
+Tables and columns:
+- dim_entities(entity_id, entity_name, platform, platform_metadata)
+- fact_review_absa_results(result_id, feedback_id, entity_id, feedback_timestamp,
+  raw_text, aspect_category, sentiment_label, confidence_score)
+- fact_social_posts(post_id, entity_id, post_timestamp, post_text, total_reactions,
+  like_count, love_count, haha_count, sad_count, angry_count, care_count,
+  wow_count, shares_count, comments_count, positivity_ratio, negativity_ratio)
+- dim_brands(brand_id, brand_name, facebook_entity_id)
+- bridge_brand_foodpanda_shops(brand_id, entity_id)
+Views and columns:
+- v_entity_sentiment_overview(entity_id, entity_name, platform, total_reviews,
+  positive_count, negative_count, neutral_count, positive_ratio, negative_ratio, avg_confidence)
+- v_aspect_breakdown(aspect_category, sentiment_label, count, avg_confidence)
+- v_sentiment_daily_trends(feedback_date, entity_id, entity_name, platform,
+  total_reviews, positive_count, negative_count, neutral_count, positive_ratio)
+- v_facebook_engagement(entity_id, entity_name, total_posts, total_reactions,
+  total_shares, total_comments, avg_positivity_ratio, avg_negativity_ratio)
+- v_entity_aspect_summary(entity_id, entity_name, platform, aspect_category,
+  sentiment_label, count)
 """
 
 _BUSINESS_CONTEXT = """\
 Additional context:
-- Aspect categories: product_or_service_quality, fulfillment_and_speed, price_and_value, digital_experience, customer_support, variety_and_availability
+- Aspect categories: product_quality, fulfillment_and_speed, price_and_value, staff_and_service, variety_and_availability
 - Sentiment labels: Positive, Negative, Neutral
 - Platforms: facebook, foodpanda
 - Prefer views (v_*) for aggregate/overview questions. Use base tables for detailed drill-down queries (e.g., raw review text).
-- Foreign keys: fact_review_absa_results.entity_id → dim_entities.entity_id, fact_social_posts.entity_id → dim_entities.entity_id"""
+- Foreign keys: fact_review_absa_results.entity_id → dim_entities.entity_id; fact_social_posts.entity_id → dim_entities.entity_id; dim_brands.facebook_entity_id → dim_entities.entity_id; bridge_brand_foodpanda_shops.brand_id → dim_brands.brand_id; bridge_brand_foodpanda_shops.entity_id → dim_entities.entity_id.
+- A branch means a Foodpanda shop mapped through bridge_brand_foodpanda_shops. For questions about branches of a named brand, join dim_brands → bridge_brand_foodpanda_shops → the entity/view and filter dim_brands.brand_name. Do not rank unrelated entities.
+- Preserve every scope in the question, including brand, branch, entity, platform, aspect, sentiment, and date range. Never silently drop a requested filter.
+- Use COUNT(DISTINCT (entity_id, feedback_id)) when counting distinct reviews from fact_review_absa_results."""
 
 
 def _build_system_prompt() -> str:
@@ -142,6 +132,7 @@ def _build_system_prompt() -> str:
         "You are a SQL analyst for a Burmese sentiment analytics dashboard.\n"
         "Given a natural-language question, write a single SELECT query against PostgreSQL.\n"
         "Rules: ONLY SELECT. No DML, no DDL. Use LIMIT 100 max.\n"
+        "The SQL must answer the exact question and retain every named filter.\n"
         "Return ONLY the raw SQL — no markdown fences, no explanation, no commentary.\n\n"
         f"Database schema:\n{_ANALYTICS_SCHEMA}\n\n"
         f"{_BUSINESS_CONTEXT}"
@@ -243,13 +234,45 @@ def validate_readonly_sql(sql: str) -> str:
     return sql.strip().rstrip(";").strip()
 
 
+def validate_question_scope(question: str, sql: str) -> None:
+    """Reject plans that omit an explicitly requested brand-branch scope."""
+    branch_brand = _branch_brand_filter(question)
+    if not branch_brand:
+        return
+
+    lowered_sql = sql.lower()
+    required_relations = {"dim_brands", "bridge_brand_foodpanda_shops"}
+    if not required_relations.issubset(set(re.findall(r"\b[a-z_]+\b", lowered_sql))):
+        raise QueryScopeMismatch(
+            "Generated SQL did not preserve the requested brand branch filter"
+        )
+    if branch_brand.lower() not in lowered_sql:
+        raise QueryScopeMismatch(
+            "Generated SQL did not include the requested brand name"
+        )
+
+
 async def _execute_readonly(sql: str) -> list[dict[str, Any]]:
     safe_sql = validate_readonly_sql(sql)
+    now = time.monotonic()
+    cached = _QUERY_CACHE.get(safe_sql)
+    if cached and cached[0] > now:
+        return [dict(row) for row in cached[1]]
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction(readonly=True):
-            rows = await conn.fetch(safe_sql, timeout=30)
-    return _serialize_rows(rows)
+            rows = await conn.fetch(safe_sql, timeout=8)
+    serialized = _serialize_rows(rows)
+    if settings.CHAT_QUERY_CACHE_SECONDS > 0:
+        if len(_QUERY_CACHE) >= _MAX_CACHED_QUERIES:
+            oldest_key = min(_QUERY_CACHE, key=lambda key: _QUERY_CACHE[key][0])
+            _QUERY_CACHE.pop(oldest_key, None)
+        _QUERY_CACHE[safe_sql] = (
+            now + settings.CHAT_QUERY_CACHE_SECONDS,
+            tuple(dict(row) for row in serialized),
+        )
+    return serialized
 
 
 def _translate(explanation: str, language: str) -> str:
@@ -281,6 +304,26 @@ def _translate(explanation: str, language: str) -> str:
     return translations.get(explanation, explanation)
 
 
+def _public_llm_error(exc: Exception) -> str:
+    raw = str(exc)
+    lowered = raw.lower()
+    if isinstance(exc, QueryScopeMismatch):
+        return (
+            "The generated query did not preserve the requested brand or branch "
+            "filter. Please try the question again."
+        )
+    if "location is not supported" in lowered:
+        return (
+            "Google could not serve the request from the current network region. "
+            "Confirm that the US VPN is connected, then try again."
+        )
+    if "deadline" in lowered or isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+        return "The planning request timed out. Please try again."
+    if "429" in lowered or "resource_exhausted" in lowered:
+        return "Google is rate-limiting requests. Please try again shortly."
+    return "Google could not complete the planning request. Please try again."
+
+
 def _clarification(normalized: str, has_history: bool, language: str) -> str | None:
     vague_phrases = {
         "show me more",
@@ -307,9 +350,38 @@ def _clarification(normalized: str, has_history: bool, language: str) -> str | N
     return None
 
 
+def _sql_string_literal(value: str) -> str:
+    """Quote a trusted route value without allowing it to change SQL structure."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _branch_brand_filter(routing_text: str) -> str | None:
+    """Extract the brand named in common branch-comparison questions."""
+    if not re.search(r"\bbranch(?:es)?\b", routing_text):
+        return None
+
+    patterns = (
+        r"\bbranch(?:es)?\s+(?:of|for)\s+(.+?)(?=\s+(?:has|have|with|by|in)\b|[?.]|$)",
+        r"\b(?:which|what)\s+branch(?:es)?\s+(?:of|for)\s+(.+?)(?=\s+(?:has|have|with|by|in)\b|[?.]|$)",
+        r"\b([a-z0-9][a-z0-9 &'’-]{0,50})\s+branch(?:es)?\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, routing_text, flags=re.IGNORECASE)
+        if match:
+            candidate = " ".join(match.group(1).split()).strip(" -")
+            if candidate:
+                return candidate[:60]
+    return None
+
+
+def _brand_label(value: str) -> str:
+    return value.upper() if len(value) <= 4 else value.title()
+
+
 def _keyword_route(
     routing_text: str, language: str
 ) -> tuple[str, str, ChatChartSpec | None] | None:
+    branch_brand = _branch_brand_filter(routing_text)
     if "aspect" in routing_text:
         sql = (
             "SELECT aspect_category AS aspect, sentiment_label AS sentiment, "
@@ -341,15 +413,33 @@ def _keyword_route(
         or "highest" in routing_text
         or "worst" in routing_text
     ):
-        sql = (
-            "SELECT entity_id, entity_name, platform, total_reviews, negative_count, "
-            "negative_ratio FROM v_entity_sentiment_overview "
-            "ORDER BY negative_ratio DESC NULLS LAST, total_reviews DESC LIMIT 10"
-        )
-        explanation = (
-            "Entities are ranked by negative-review ratio, with review volume "
-            "used as the tie-breaker."
-        )
+        if branch_brand:
+            brand_sql = _sql_string_literal(branch_brand)
+            sql = (
+                "SELECT overview.entity_id, overview.entity_name, overview.platform, "
+                "overview.total_reviews, overview.negative_count, overview.negative_ratio "
+                "FROM v_entity_sentiment_overview overview "
+                "JOIN bridge_brand_foodpanda_shops bridge "
+                "ON bridge.entity_id = overview.entity_id "
+                "JOIN dim_brands brand ON brand.brand_id = bridge.brand_id "
+                f"WHERE LOWER(brand.brand_name) = LOWER({brand_sql}) "
+                "ORDER BY overview.negative_ratio DESC NULLS LAST, "
+                "overview.total_reviews DESC LIMIT 10"
+            )
+            explanation = (
+                f"{_brand_label(branch_brand)} branches are ranked by negative-review "
+                "ratio, with review volume used as the tie-breaker."
+            )
+        else:
+            sql = (
+                "SELECT entity_id, entity_name, platform, total_reviews, negative_count, "
+                "negative_ratio FROM v_entity_sentiment_overview "
+                "ORDER BY negative_ratio DESC NULLS LAST, total_reviews DESC LIMIT 10"
+            )
+            explanation = (
+                "Entities are ranked by negative-review ratio, with review volume "
+                "used as the tie-breaker."
+            )
         chart = ChatChartSpec(
             type="bar", x_key="entity_name", y_keys=["negative_ratio"]
         )
@@ -358,17 +448,96 @@ def _keyword_route(
         or "highest" in routing_text
         or "best" in routing_text
     ):
-        sql = (
-            "SELECT entity_id, entity_name, platform, total_reviews, positive_count, "
-            "positive_ratio FROM v_entity_sentiment_overview "
-            "ORDER BY positive_ratio DESC NULLS LAST, total_reviews DESC LIMIT 10"
-        )
-        explanation = (
-            "Entities are ranked by positive-review ratio, with review volume "
-            "used as the tie-breaker."
-        )
+        if branch_brand:
+            brand_sql = _sql_string_literal(branch_brand)
+            sql = (
+                "SELECT overview.entity_id, overview.entity_name, overview.platform, "
+                "overview.total_reviews, overview.positive_count, overview.positive_ratio "
+                "FROM v_entity_sentiment_overview overview "
+                "JOIN bridge_brand_foodpanda_shops bridge "
+                "ON bridge.entity_id = overview.entity_id "
+                "JOIN dim_brands brand ON brand.brand_id = bridge.brand_id "
+                f"WHERE LOWER(brand.brand_name) = LOWER({brand_sql}) "
+                "ORDER BY overview.positive_ratio DESC NULLS LAST, "
+                "overview.total_reviews DESC LIMIT 10"
+            )
+            explanation = (
+                f"{_brand_label(branch_brand)} branches are ranked by positive-review "
+                "ratio, with review volume used as the tie-breaker."
+            )
+        else:
+            sql = (
+                "SELECT entity_id, entity_name, platform, total_reviews, positive_count, "
+                "positive_ratio FROM v_entity_sentiment_overview "
+                "ORDER BY positive_ratio DESC NULLS LAST, total_reviews DESC LIMIT 10"
+            )
+            explanation = (
+                "Entities are ranked by positive-review ratio, with review volume "
+                "used as the tie-breaker."
+            )
         chart = ChatChartSpec(
             type="bar", x_key="entity_name", y_keys=["positive_ratio"]
+        )
+    elif "schema" in routing_text or "database structure" in routing_text:
+        sql = (
+            "SELECT table_name, column_name, data_type FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name IN "
+            "('dim_entities', 'dim_brands', 'bridge_brand_foodpanda_shops', "
+            "'fact_review_absa_results', 'fact_social_posts') "
+            "ORDER BY table_name, ordinal_position LIMIT 100"
+        )
+        explanation = (
+            "The data analyst receives a restricted schema map containing these "
+            "analytics tables and columns."
+        )
+        chart = None
+    elif re.search(r"\b(how many|count|total)\b", routing_text) and re.search(
+        r"\breviews?\b", routing_text
+    ):
+        sql = (
+            "SELECT COUNT(DISTINCT (entity_id, feedback_id))::int AS total_reviews "
+            "FROM fact_review_absa_results"
+        )
+        explanation = "This is the total number of distinct reviews in the dataset."
+        chart = None
+    elif re.search(r"\b(how many|count|total)\b", routing_text) and re.search(
+        r"\bentities\b|\bshops?\b", routing_text
+    ):
+        sql = "SELECT COUNT(*)::int AS total_entities FROM dim_entities"
+        explanation = "This is the total number of entities in the dataset."
+        chart = None
+    elif re.search(r"\b(how many|count|total)\b", routing_text) and re.search(
+        r"\bbrands?\b", routing_text
+    ):
+        sql = "SELECT COUNT(*)::int AS total_brands FROM dim_brands"
+        explanation = "This is the total number of mapped brands in the dataset."
+        chart = None
+    elif "engagement" in routing_text or "reaction" in routing_text:
+        sql = (
+            "SELECT entity_id, entity_name, total_posts, total_reactions, "
+            "total_shares, total_comments, avg_positivity_ratio, "
+            "avg_negativity_ratio FROM v_facebook_engagement "
+            "ORDER BY total_reactions DESC NULLS LAST LIMIT 20"
+        )
+        explanation = "Here is Facebook engagement ranked by total reactions."
+        chart = ChatChartSpec(
+            type="bar", x_key="entity_name", y_keys=["total_reactions"]
+        )
+    elif (
+        "sentiment overview" in routing_text
+        or "compare entities" in routing_text
+        or "compare shops" in routing_text
+        or "all entities" in routing_text
+    ):
+        sql = (
+            "SELECT entity_id, entity_name, platform, total_reviews, "
+            "positive_count, negative_count, neutral_count, positive_ratio, "
+            "negative_ratio FROM v_entity_sentiment_overview "
+            "ORDER BY total_reviews DESC LIMIT 20"
+        )
+        explanation = "Here is the current sentiment overview by entity."
+        chart = ChatChartSpec(
+            type="bar", x_key="entity_name", y_keys=["positive_ratio", "negative_ratio"]
         )
     else:
         return None
@@ -379,20 +548,53 @@ def _keyword_route(
 async def _llm_query_plan(
     question: str, language: str
 ) -> tuple[str, str, ChatChartSpec | None] | None:
+    global _GENAI_CLIENT, _GENAI_CLIENT_CONFIG
+    global _LAST_LLM_ERROR, _LLM_UNAVAILABLE_UNTIL
+
     if not settings.GOOGLE_API_KEY:
+        return None
+    now = time.monotonic()
+    cache_key = (question, language)
+    cached_plan = _PLAN_CACHE.get(cache_key)
+    if cached_plan and cached_plan[0] > now:
+        return cached_plan[1]
+    if now < _LLM_UNAVAILABLE_UNTIL:
         return None
 
     try:
         from google import genai
+        from google.genai import types
 
-        client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-        response = await client.aio.models.generate_content(
+        timeout_ms = max(1, round(settings.GOOGLE_TIMEOUT_SECONDS * 1000))
+        client_config = (
+            settings.GOOGLE_API_KEY,
+            timeout_ms,
+            settings.GOOGLE_RETRY_ATTEMPTS,
+        )
+        if _GENAI_CLIENT is None or _GENAI_CLIENT_CONFIG != client_config:
+            _GENAI_CLIENT = genai.Client(
+                api_key=settings.GOOGLE_API_KEY,
+                http_options=types.HttpOptions(
+                    timeout=timeout_ms,
+                    retry_options=types.HttpRetryOptions(
+                        attempts=max(1, settings.GOOGLE_RETRY_ATTEMPTS)
+                    ),
+                ),
+            )
+            _GENAI_CLIENT_CONFIG = client_config
+
+        request = _GENAI_CLIENT.aio.models.generate_content(
             model=settings.GOOGLE_MODEL,
             contents=question,
-            config={
-                "system_instruction": _build_system_prompt(),
-                "temperature": 0,
-            },
+            config=types.GenerateContentConfig(
+                system_instruction=_build_system_prompt(),
+                max_output_tokens=256,
+                thinking_config=types.ThinkingConfig(thinking_level="minimal"),
+            ),
+        )
+        response = await asyncio.wait_for(
+            request,
+            timeout=settings.GOOGLE_TIMEOUT_SECONDS + 1,
         )
 
         sql = (response.text or "").strip()
@@ -400,11 +602,29 @@ async def _llm_query_plan(
             r"^```sql\s*|^```\s*|```$", "", sql, flags=re.MULTILINE
         ).strip()
         sql = validate_readonly_sql(sql)
-        return sql, _translate(
-            "Here are the results for your query.", language
-        ), None
-    except Exception:
-        logger.warning("Gemini LLM query plan failed", exc_info=True)
+        validate_question_scope(question, sql)
+        _LAST_LLM_ERROR = None
+        _LLM_UNAVAILABLE_UNTIL = 0.0
+        plan = (
+            sql,
+            _translate("Here are the results for your query.", language),
+            None,
+        )
+        if settings.CHAT_PLAN_CACHE_SECONDS > 0:
+            if len(_PLAN_CACHE) >= _MAX_CACHED_PLANS:
+                oldest_key = min(_PLAN_CACHE, key=lambda key: _PLAN_CACHE[key][0])
+                _PLAN_CACHE.pop(oldest_key, None)
+            _PLAN_CACHE[cache_key] = (
+                now + settings.CHAT_PLAN_CACHE_SECONDS,
+                plan,
+            )
+        return plan
+    except Exception as exc:
+        raw_error = str(exc) or type(exc).__name__
+        _LAST_LLM_ERROR = _public_llm_error(exc)
+        if "location is not supported" in raw_error.lower():
+            _LLM_UNAVAILABLE_UNTIL = time.monotonic() + 15
+        logger.warning("Gemini LLM query plan failed: %s", raw_error)
         return None
 
 
@@ -415,7 +635,7 @@ async def query_data(
     language: str = "en",
     history: list[ChatHistoryMessage] | None = None,
 ) -> ChatResponse:
-    """Answer analytics questions: keyword fast-path, then Gemini fallback."""
+    """Answer analytics questions with LLM-generated, validated read-only SQL."""
     history = history or []
     normalized = " ".join(question.lower().split())
     message_id = str(uuid4())
@@ -441,21 +661,25 @@ async def query_data(
         if previous_questions:
             routing_text = f"{previous_questions[-1]} {normalized}"
 
-    result = _keyword_route(routing_text, language)
-    if result is None:
-        result = await _llm_query_plan(routing_text, language)
+    result = await _llm_query_plan(routing_text, language)
+    if result is None and settings.CHAT_TEMPLATE_FALLBACK:
+        result = _keyword_route(routing_text, language)
 
     if result is None:
+        if settings.GOOGLE_API_KEY and _LAST_LLM_ERROR:
+            error = f"The AI query planner is unavailable: {_LAST_LLM_ERROR}"
+        else:
+            error = (
+                "I can answer questions about aspects, trends, sentiment rankings, "
+                "and engagement. For other questions, configure GOOGLE_API_KEY in "
+                "your .env file to enable AI-powered SQL generation."
+            )
         return ChatResponse(
             question=question,
             conversation_id=conversation_id,
             message_id=message_id,
             language=language,
-            error=(
-                "I can answer questions about aspects, trends, sentiment rankings, "
-                "and engagement. For other questions, configure GOOGLE_API_KEY in "
-                "your .env file to enable AI-powered SQL generation."
-            ),
+            error=error,
         )
 
     sql, explanation, chart = result
@@ -561,7 +785,7 @@ async def stream_answer_events(
         "conversation_id": conversation.conversation_id,
         "language": body.language,
     }
-    yield {"type": "status", "message": "Planning a read-only query"}
+    yield {"type": "status", "message": "Generating read-only SQL from your question"}
     try:
         response = await answer_question(
             body.model_copy(update={"conversation_id": conversation.conversation_id}),

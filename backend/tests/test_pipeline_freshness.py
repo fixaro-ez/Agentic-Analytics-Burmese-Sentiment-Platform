@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 SRC_DIR = Path(__file__).resolve().parents[2] / "src"
@@ -77,6 +78,28 @@ class CleaningFreshnessTests(unittest.TestCase):
 
 
 class AbsaFreshnessTests(unittest.TestCase):
+    def test_retrained_model_contract_and_stage2_pair_format(self):
+        aspect_model = SimpleNamespace(
+            config=SimpleNamespace(num_labels=5)
+        )
+        sentiment_model = SimpleNamespace(
+            config=SimpleNamespace(num_labels=3)
+        )
+
+        absa._validate_model_contract(aspect_model, sentiment_model)
+        self.assertEqual(
+            absa._sentiment_aspect_text("staff_and_service"),
+            "staff and service",
+        )
+
+    def test_model_contract_rejects_legacy_six_label_checkpoint(self):
+        legacy_model = SimpleNamespace(
+            config=SimpleNamespace(num_labels=6)
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "model has 6 outputs"):
+            absa._validate_model_contract(legacy_model)
+
     def test_source_or_threshold_change_invalidates_absa_output(self):
         cleaned = {
             "_id": "post-1",

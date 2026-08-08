@@ -47,6 +47,10 @@
   --accent-hangry: #ff9f5a;
   --confidence-low: #26343f;
   --confidence-high: #5b8def;
+  /* Aspect identity is intentionally separate from sentiment and actions. */
+  --aspect-accent: #5a46b4;
+  --aspect-surface: #f0edff;
+  --aspect-border: #c7bcf6;
   /* §3.4 System & agentic tokens */
   --alert-critical: #ef4444;
   --alert-sarcasm: #c77dff;
@@ -91,6 +95,9 @@
   --sidebar-accent-foreground: #e6edf3;
   --sidebar-border: #232e38;
   --sidebar-ring: #5b8def;
+  --aspect-accent: #c0b5ff;
+  --aspect-surface: #211d36;
+  --aspect-border: #554b80;
   /* The v3 visualization colors are readable as text on the primary dark UI. */
   --sentiment-positive-foreground: #2dd4a7;
   --sentiment-negative-foreground: #ff6b5e;
@@ -140,6 +147,9 @@
   --color-accent-hangry: var(--accent-hangry);
   --color-confidence-low: var(--confidence-low);
   --color-confidence-high: var(--confidence-high);
+  --color-aspect-accent: var(--aspect-accent);
+  --color-aspect-surface: var(--aspect-surface);
+  --color-aspect-border: var(--aspect-border);
   --color-alert-critical: var(--alert-critical);
   --color-alert-sarcasm: var(--alert-sarcasm);
   --color-badge-incomplete: var(--badge-incomplete);

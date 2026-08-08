@@ -15,7 +15,7 @@ The architecture follows a modern ELT/ETL pipeline, leveraging both NoSQL and re
 - **Data Ingestion:** Python scrapers extract dynamic DOM data from Facebook and API/DOM data from Foodpanda.
 - **Data Lake (NoSQL):** Raw data is stored in MongoDB (`contents` and `feedbacks` collections) to handle schema flexibility.
 - **AI Transformation (Burmese Sentiment ETL Layer):**
-  - **Stage 1 ABSA:** Multi-label classification that detects six aspects, such as `customer_support` and `price_and_value`, in Burmese text.
+  - **Stage 1 ABSA:** Multi-label classification that detects five aspects, such as `staff_and_service` and `price_and_value`, in Burmese text.
   - **Stage 2 ABSA:** Sentence-pair classification that determines Positive, Negative, or Neutral sentiment for detected aspects.
 - **Data Warehouse (RDBMS):** Cleaned, sentiment-scored data is loaded into PostgreSQL using a Star Schema with fact and dimension tables optimized for OLAP.
 - **Presentation & Agentic Layer:** A React/Next.js frontend provides BI visualizations and an AI-assisted Text-to-SQL workspace.

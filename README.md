@@ -107,7 +107,7 @@ Selenium/
 │   ├── AGENTS.md                    # Frontend-specific agent instructions
 │   └── package.json
 ├── models/                          # Local ML model weights (gitignored)
-│   ├── stage1_xlm_roberta_large/    # Aspect detection
+│   ├── stage1_xlm_roberta_base/     # Five-aspect detection
 │   └── stage2_xlm_roberta_base/     # Sentiment classification
 ├── tests/                           # Scraper tests (unittest)
 │   ├── test_facebook_posts.py       # Pure function tests (no browser)
@@ -119,7 +119,8 @@ Selenium/
 │   ├── 20260801_scrape_schedule_fk_index.sql
 │   ├── 20260802_remove_social_post_classifications.sql
 │   ├── 20260802_security_and_integrity_hardening.sql
-│   └── 20260802_review_level_sentiment_views.sql
+│   ├── 20260802_review_level_sentiment_views.sql
+│   └── 20260804_five_aspect_model_cutover.sql
 ├── docs/                            # Project documentation
 ├── init_db.sql                      # Base DDL (star schema + scrape management)
 ├── views.sql                        # Analytics views (power API endpoints)
@@ -177,7 +178,7 @@ playwright install chromium
 cd frontend && npm ci && cd ..
 
 # 6. (Optional) Download ML models locally instead of fetching from HuggingFace
-#    Place them in models/stage1_xlm_roberta_large/ and models/stage2_xlm_roberta_base/
+#    Place them in models/stage1_xlm_roberta_base/ and models/stage2_xlm_roberta_base/
 ```
 
 ## Running the Application
@@ -396,7 +397,7 @@ Views (`views.sql`): `v_entity_sentiment_overview`, `v_aspect_breakdown`, and ot
 | `Fixaro/myanmar-absa-aspect-detection` | Stage 1: Multi-label aspect detection | XLM-RoBERTa Large, BCEWithLogitsLoss |
 | `Fixaro/myanmar-absa-sentiment-classification` | Stage 2: Sentiment classification | XLM-RoBERTa Base, sentence-pair |
 
-**6 ABSA aspects:** `product_or_service_quality`, `fulfillment_and_speed`, `price_and_value`, `digital_experience`, `customer_support`, `variety_and_availability`
+**5 ABSA aspects:** `product_quality`, `fulfillment_and_speed`, `price_and_value`, `staff_and_service`, `variety_and_availability`
 
 **3 sentiment labels:** `Positive`, `Negative`, `Neutral`
 

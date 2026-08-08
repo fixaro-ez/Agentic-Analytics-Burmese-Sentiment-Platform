@@ -170,13 +170,13 @@ export default function EntityDetailPage() {
         <CardHeader>
           <CardTitle>Aspect Sentiment Breakdown</CardTitle>
           <CardDescription>
-            Sentiment distribution across the 6 ABSA aspects
+            Sentiment distribution across the 5 ABSA aspects
           </CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="space-y-3">
-              {Array.from({ length: 6 }).map((_, i) => (
+              {Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-10 w-full" />
               ))}
             </div>

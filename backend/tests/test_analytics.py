@@ -243,7 +243,7 @@ class EntityReviewTests(unittest.IsolatedAsyncioTestCase):
             "review_text": "the selected review",
             "sentiment_label": "Negative",
             "confidence_score": 0.88,
-            "aspect_category": "product_or_service_quality",
+            "aspect_category": "product_quality",
             "created_at": datetime(2026, 7, 1, 8, 30, 0),
         }
         connection = _QueueConnection([[], 31, focus_row])
@@ -252,7 +252,7 @@ class EntityReviewTests(unittest.IsolatedAsyncioTestCase):
             page = await analytics.get_entity_reviews(
                 4,
                 days=30,
-                aspect="product_or_service_quality",
+                aspect="product_quality",
                 focus_feedback_id="clicked-review",
             )
 
@@ -261,7 +261,7 @@ class EntityReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("feedback_id = $2", focus_call[1])
         self.assertEqual(
             focus_call[2],
-            (4, "clicked-review", "product_or_service_quality"),
+            (4, "clicked-review", "product_quality"),
         )
         self.assertEqual(page.focus_review.feedback_id, "clicked-review")
 
@@ -314,7 +314,7 @@ class KpiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("aspect_category = ANY($2::text[])", hangry_call[1])
         self.assertEqual(
             hangry_call[2],
-            (7, ["fulfillment_and_speed", "product_or_service_quality"], 2),
+            (7, ["fulfillment_and_speed", "product_quality"], 2),
         )
 
     async def test_kpis_empty_windows_yield_nulls(self):

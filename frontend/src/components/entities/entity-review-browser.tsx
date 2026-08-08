@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { Tag } from "lucide-react"
 
 import { DataError } from "@/components/data-error"
 import { Badge } from "@/components/ui/badge"
@@ -26,6 +27,17 @@ function ReviewItem({
   review: EntityReview
   selected?: boolean
 }) {
+  const aspectLabel =
+    review.aspect_category && review.aspect_category !== "no_aspect"
+      ? ASPECT_LABELS[review.aspect_category] ?? review.aspect_category
+      : null
+  const sentimentClass =
+    review.sentiment_label === "Positive"
+      ? "border-transparent bg-sentiment-positive text-sentiment-on-color"
+      : review.sentiment_label === "Negative"
+        ? "border-transparent bg-sentiment-negative text-sentiment-on-color"
+        : "border-transparent bg-sentiment-neutral text-sentiment-on-color"
+
   return (
     <article
       id={selected ? "selected-review" : undefined}
@@ -41,27 +53,28 @@ function ReviewItem({
       >
         {review.review_text || "No review text"}
       </p>
-      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        {aspectLabel && (
+          <span
+            className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-aspect-border bg-aspect-surface px-2.5 py-1 font-semibold text-aspect-accent"
+            aria-label={`Detected aspect: ${aspectLabel}`}
+          >
+            <Tag className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">{aspectLabel}</span>
+          </span>
+        )}
         {review.sentiment_label && (
           <Badge
-            variant={
-              review.sentiment_label === "Positive"
-                ? "default"
-                : review.sentiment_label === "Negative"
-                  ? "destructive"
-                  : "secondary"
-            }
-            className="text-xs"
+            variant="outline"
+            className={`text-xs ${sentimentClass}`}
+            aria-label={`${review.sentiment_label} sentiment${aspectLabel ? ` for ${aspectLabel}` : ""}`}
           >
             {review.sentiment_label}
           </Badge>
         )}
         {review.confidence_score != null && (
-          <span>{(review.confidence_score * 100).toFixed(0)}% confident</span>
-        )}
-        {review.aspect_category && (
           <span>
-            {ASPECT_LABELS[review.aspect_category] ?? review.aspect_category}
+            {(review.confidence_score * 100).toFixed(0)}% confident
           </span>
         )}
         {review.created_at && <span>{review.created_at}</span>}

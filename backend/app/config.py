@@ -21,7 +21,14 @@ class Settings(BaseSettings):
     PG_DBNAME: str = "postgres"
 
     GOOGLE_API_KEY: str = ""
-    GOOGLE_MODEL: str = "gemini-3.5-flash"
+    GOOGLE_MODEL: str = "gemini-3.5-flash-lite"
+    # Gemini rejects manually configured deadlines below 10 seconds.
+    # This is only a failure ceiling; successful responses return immediately.
+    GOOGLE_TIMEOUT_SECONDS: float = 10.0
+    GOOGLE_RETRY_ATTEMPTS: int = 1
+    CHAT_QUERY_CACHE_SECONDS: float = 15.0
+    CHAT_PLAN_CACHE_SECONDS: float = 300.0
+    CHAT_TEMPLATE_FALLBACK: bool = False
 
     MONGO_URI: str = "mongodb://localhost:27017"
 

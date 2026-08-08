@@ -7,13 +7,14 @@ from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .database import close_pool
+from .database import close_pool, warm_pool
 from .routers import analytics, brands, chat, entities, etl, mining, scraping
 from .services.scraping import start_scheduler, stop_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await warm_pool()
     start_scheduler()
     yield
     await stop_scheduler()

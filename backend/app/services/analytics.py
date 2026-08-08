@@ -24,7 +24,7 @@ from ..models.analytics import (
 
 # Aspects that feed the Hangry Index: food-delivery "hangry" complaints
 # are fundamentally about speed/fulfillment and product quality.
-HANGRY_ASPECTS = ("fulfillment_and_speed", "product_or_service_quality")
+HANGRY_ASPECTS = ("fulfillment_and_speed", "product_quality")
 
 
 def _review_filters(

@@ -92,7 +92,7 @@ This table stores the final output from the two-stage NLP pipeline. It uses a "L
 | `entity_id` | INT | REFERENCES dim_entities(entity_id) | Foreign key linking to the shop in dim_entities. |
 | `feedback_timestamp` | TIMESTAMP | — | Time the review was posted. |
 | `raw_text` | TEXT | — | The original, cleaned review text. |
-| `aspect_category` | VARCHAR(100) | — | The aspect detected by Stage 1 (e.g., 'product_or_service_quality'). If no aspect is detected, this will be 'no_aspect'. |
+| `aspect_category` | VARCHAR(100) | — | The aspect detected by Stage 1 (e.g., 'product_quality'). If no aspect is detected, this will be 'no_aspect'. |
 | `sentiment_label` | VARCHAR(20) | — | The sentiment output by Stage 2 ('Positive', 'Negative', 'Neutral'). |
 | `confidence_score` | DECIMAL(5,4) | — | The confidence score from the Stage 2 model (e.g., 0.9850). |
 
@@ -297,5 +297,6 @@ migrations/20260801_etl_health_scrape_management.sql     # etl_runs, scrape_enti
 migrations/20260801_pipeline_default_and_integrity.sql   # auto_pipeline and run_full_pipeline defaults
 migrations/20260801_scrape_schedule_fk_index.sql         # scrape_schedules entity_id index
 migrations/20260802_remove_social_post_classifications.sql # remove retired impact schema
+migrations/20260804_five_aspect_model_cutover.sql         # retrained five-aspect taxonomy
 views.sql                                                # Analytics views
 ```

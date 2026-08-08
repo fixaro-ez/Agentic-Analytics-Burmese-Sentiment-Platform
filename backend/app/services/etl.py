@@ -583,6 +583,7 @@ def _run_absa_sync(
         get_pending_feedback_ids,
         remove_ineligible_outputs,
         _resolve_model_path,
+        _validate_model_contract,
         run_feedbacks_pipeline,
         run_contents_pipeline,
         ASPECT_MODEL_FOLDER,
@@ -654,6 +655,7 @@ def _run_absa_sync(
                 aspect_source, dtype=_dtype
             ).to(_device)
             _aspect_model.eval()
+            _validate_model_contract(_aspect_model)
 
         if _sentiment_model is None and pending_feedbacks:
             models_dir = (
@@ -671,6 +673,7 @@ def _run_absa_sync(
                 ).to(_device)
             )
             _sentiment_model.eval()
+            _validate_model_contract(_aspect_model, _sentiment_model)
 
         if pipeline in ("feedbacks", "both") and pending_feedbacks:
             fb_stats = run_feedbacks_pipeline(

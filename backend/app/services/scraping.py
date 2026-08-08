@@ -231,7 +231,7 @@ async def get_scrape_readiness(source: str) -> ScrapeReadiness:
         cookies_ready = cookie_status.valid
         cookie_message = cookie_status.message
 
-    required_model_dirs = ["stage1_xlm_roberta_large"]
+    required_model_dirs = ["stage1_xlm_roberta_base"]
     if source == "foodpanda":
         required_model_dirs.append("stage2_xlm_roberta_base")
     required_model_files = ("config.json", "model.safetensors", "tokenizer.json")

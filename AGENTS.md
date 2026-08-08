@@ -98,6 +98,7 @@ migrations/20260801_scrape_schedule_fk_index.sql         # Schedule FK index
 migrations/20260802_security_and_integrity_hardening.sql # RLS, grants, constraints, secure views
 migrations/20260802_review_level_sentiment_views.sql     # Distinct-review overview and trend metrics
 migrations/20260802_remove_social_post_classifications.sql # Remove retired impact schema
+migrations/20260804_five_aspect_model_cutover.sql         # Retrained five-aspect taxonomy cutover
 views.sql                                                # Analytics views
 ```
 
@@ -179,7 +180,7 @@ Selenium/
 │   ├── package.json
 │   └── .env.local.example
 ├── models/                          # Local ML model weights (gitignored)
-│   ├── stage1_xlm_roberta_large/    # Aspect detection
+│   ├── stage1_xlm_roberta_base/     # Five-aspect detection
 │   └── stage2_xlm_roberta_base/     # Sentiment classification
 ├── tests/                           # Scraper tests (unittest)
 │   ├── __init__.py
@@ -190,7 +191,8 @@ Selenium/
 │   ├── 20260801_etl_health_scrape_management.sql
 │   ├── 20260801_pipeline_default_and_integrity.sql
 │   ├── 20260801_scrape_schedule_fk_index.sql
-│   └── 20260802_remove_social_post_classifications.sql
+│   ├── 20260802_remove_social_post_classifications.sql
+│   └── 20260804_five_aspect_model_cutover.sql
 ├── docs/
 │   ├── CAPSTONE_PROJECT.md
 │   ├── Project_Database_Design.md
@@ -272,7 +274,7 @@ Views in `views.sql`: `v_entity_sentiment_overview`, `v_aspect_breakdown`, and o
 - Burmese text, digits, and month names are first-class — encoding is forced to UTF-8 at startup.
 - `engagement_history` is capped at 100 snapshots per post (`MAX_ENGAGEMENT_HISTORY`).
 - `facebook_data.json` is debug output only — never ingest it via `ingest_to_mongo`.
-- **ABSA aspects** (6): `product_or_service_quality`, `fulfillment_and_speed`, `price_and_value`, `digital_experience`, `customer_support`, `variety_and_availability`.
+- **ABSA aspects** (5): `product_quality`, `fulfillment_and_speed`, `price_and_value`, `staff_and_service`, `variety_and_availability`.
 - **Sentiment labels** (3): `Positive`, `Negative`, `Neutral`.
 - Dedup key: `_id = fb_post_<sha256(normalized_page_url + platform_content_id)>`.
 - 30-day lifecycle: posts within 30 days get engagement-only updates; expired posts are marked `lifecycle_status: "final"`.

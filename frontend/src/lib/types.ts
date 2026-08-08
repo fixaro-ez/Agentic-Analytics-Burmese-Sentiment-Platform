@@ -392,11 +392,10 @@ export interface ScrapeDetectResponse {
 }
 
 export const ASPECT_LABELS: Record<string, string> = {
-  product_or_service_quality: "Product/Service Quality",
+  product_quality: "Product Quality",
   fulfillment_and_speed: "Fulfillment & Speed",
   price_and_value: "Price & Value",
-  digital_experience: "Digital Experience",
-  customer_support: "Customer Support",
+  staff_and_service: "Staff & Service",
   variety_and_availability: "Variety & Availability",
 }
 

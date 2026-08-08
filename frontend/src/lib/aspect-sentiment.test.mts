@@ -24,13 +24,13 @@ const data: AspectBreakdown[] = [
     percentage: 0.5,
   },
   {
-    aspect: "customer_support",
+    aspect: "staff_and_service",
     sentiment: "Positive",
     count: 1,
     percentage: 0.2,
   },
   {
-    aspect: "customer_support",
+    aspect: "staff_and_service",
     sentiment: "Negative",
     count: 4,
     percentage: 0.8,
@@ -54,6 +54,6 @@ test("normalizes each aspect to 100 percent while preserving volume", () => {
 test("sorts by negative share instead of raw negative count", () => {
   const rows = buildAspectSentimentRows(data, "negativity")
 
-  assert.equal(rows[0].aspect, "customer_support")
+  assert.equal(rows[0].aspect, "staff_and_service")
   assert.equal(rows[0].negativeShare, 80)
 })

@@ -189,7 +189,7 @@ The ETL Health Monitor (Section 5.6) needs an Active / Idle / Error vocabulary t
 - Annotate the time-series chart with event markers (promo launches, viral posts, PR incidents) so an engagement or sentiment spike has a "why" attached instead of requiring the analyst to go dig through raw posts.
 
 **Consistency reduces cognitive load more than any single feature**
-- Use one fixed icon per business aspect (Product Quality, Fulfillment & Speed, Price & Value, Digital Experience, Customer Support, Variety & Availability) and reuse it everywhere — radar axis label, table column, filter chip, chart legend, and the new Association Rule Network / Cluster views in Section 5.3. Consistent iconography lets analysts pattern-match instead of re-reading labels.
+- Use one fixed icon per business aspect (Product Quality, Fulfillment & Speed, Price & Value, Staff & Service, Variety & Availability) and reuse it everywhere — radar axis label, table column, filter chip, chart legend, and the new Association Rule Network / Cluster views in Section 5.3. Consistent iconography lets analysts pattern-match instead of re-reading labels.
 - Keep action verb labels consistent end-to-end: if a button says "Approve," the resulting toast should say "Approved," not "Saved" or "Updated."
 
 **Respect daily-use fatigue**
@@ -284,11 +284,11 @@ This section specifies feature modules previously scoped in discussion but missi
 │  ASSOCIATION RULES (Apriori / FP-Growth)                                     │
 │                                                                                │
 │        [Fulfillment                                                          │
-│         & Speed: Neg] ───82%───▶ [Customer Support: Neg]                     │
+│         & Speed: Neg] ───82%───▶ [Staff & Service: Neg]                      │
 │              │                          │                                    │
 │            65%                        41%                                    │
 │              ▼                          ▼                                    │
-│        [Price & Value: Neg]      [Digital Experience: Neg]                   │
+│        [Price & Value: Neg]      [Product Quality: Neg]                      │
 │                                                                                │
 │  Node size = support (frequency) · Edge thickness/label = confidence %       │
 │  Hover edge → lift, support count, sample review snippets                    │

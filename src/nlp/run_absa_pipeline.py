@@ -51,11 +51,10 @@ OUTPUT_CONTENTS = "absa_processed_contents"
 BATCH_FETCH_SIZE = 500
 
 ASPECT_LABELS = [
-    "product_or_service_quality",
+    "product_quality",
     "fulfillment_and_speed",
     "price_and_value",
-    "digital_experience",
-    "customer_support",
+    "staff_and_service",
     "variety_and_availability",
 ]
 
@@ -64,16 +63,48 @@ SENTIMENT_LABELS = ["Negative", "Neutral", "Positive"]
 ASPECT_MODEL_ID = "Fixaro/myanmar-absa-aspect-detection"
 SENTIMENT_MODEL_ID = "Fixaro/myanmar-absa-sentiment-classification"
 
-ASPECT_MODEL_FOLDER = "stage1_xlm_roberta_large"
+ASPECT_MODEL_FOLDER = "stage1_xlm_roberta_base"
 SENTIMENT_MODEL_FOLDER = "stage2_xlm_roberta_base"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MODELS_DIR = REPO_ROOT / "models"
 
 DEFAULT_THRESHOLD = 0.5
+MODEL_MAX_LENGTH = 128
 GPU_BATCH_SIZE = 32
 CPU_BATCH_SIZE = 8
-ABSA_PIPELINE_VERSION = "2026-08-01-v1"
+ABSA_PIPELINE_VERSION = "2026-08-04-five-aspect-v2"
+ASPECT_TAXONOMY_VERSION = "five-aspect-v1"
+
+
+def _validate_model_contract(
+    aspect_model: Any,
+    sentiment_model: Any | None = None,
+) -> None:
+    """Fail fast when checkpoint heads do not match the pipeline taxonomy."""
+    aspect_labels = int(getattr(aspect_model.config, "num_labels", 0))
+    if aspect_labels != len(ASPECT_LABELS):
+        raise RuntimeError(
+            "Stage 1 checkpoint/pipeline mismatch: "
+            f"model has {aspect_labels} outputs but taxonomy has "
+            f"{len(ASPECT_LABELS)} labels ({', '.join(ASPECT_LABELS)})."
+        )
+
+    if sentiment_model is not None:
+        sentiment_labels = int(
+            getattr(sentiment_model.config, "num_labels", 0)
+        )
+        if sentiment_labels != len(SENTIMENT_LABELS):
+            raise RuntimeError(
+                "Stage 2 checkpoint/pipeline mismatch: "
+                f"model has {sentiment_labels} outputs but "
+                f"{len(SENTIMENT_LABELS)} sentiment labels are configured."
+            )
+
+
+def _sentiment_aspect_text(aspect: str) -> str:
+    """Match the readable aspect-pair format used to train Stage 2."""
+    return aspect.replace("_", " ")
 
 
 def detect_device() -> tuple[str, torch.dtype, int]:
@@ -157,6 +188,8 @@ def _processing_fingerprint(
         "source_fingerprint": source_fingerprint,
         "pipeline": pipeline,
         "pipeline_version": ABSA_PIPELINE_VERSION,
+        "aspect_taxonomy_version": ASPECT_TAXONOMY_VERSION,
+        "aspect_labels": ASPECT_LABELS,
         "aspect_model": ASPECT_MODEL_ID,
         "sentiment_model": (
             SENTIMENT_MODEL_ID if pipeline == "feedbacks" else None
@@ -297,7 +330,7 @@ def predict_aspects(
             batch_texts,
             padding=True,
             truncation=True,
-            max_length=512,
+            max_length=MODEL_MAX_LENGTH,
             return_tensors="pt",
         ).to(device)
 
@@ -338,14 +371,14 @@ def predict_sentiments(
     for i in range(0, len(pairs), batch_size):
         batch_pairs = pairs[i:i + batch_size]
         texts_a = [p[0] for p in batch_pairs]
-        texts_b = [p[1] for p in batch_pairs]
+        texts_b = [_sentiment_aspect_text(p[1]) for p in batch_pairs]
 
         inputs = tokenizer(
             texts_a,
             texts_b,
             padding=True,
             truncation=True,
-            max_length=512,
+            max_length=MODEL_MAX_LENGTH,
             return_tensors="pt",
         ).to(device)
 
@@ -473,6 +506,10 @@ def run_feedbacks_pipeline(
                 "processing_fingerprint": _processing_fingerprint(
                     doc, pipeline="feedbacks", threshold=threshold
                 ),
+                "pipeline_version": ABSA_PIPELINE_VERSION,
+                "aspect_taxonomy_version": ASPECT_TAXONOMY_VERSION,
+                "aspect_model": ASPECT_MODEL_ID,
+                "sentiment_model": SENTIMENT_MODEL_ID,
                 "content_id": doc.get("content_id"),
                 "platform": doc.get("platform", "foodpanda"),
                 "entity_name": doc.get("entity_name", ""),
@@ -574,6 +611,9 @@ def run_contents_pipeline(
                 "processing_fingerprint": _processing_fingerprint(
                     doc, pipeline="contents", threshold=threshold
                 ),
+                "pipeline_version": ABSA_PIPELINE_VERSION,
+                "aspect_taxonomy_version": ASPECT_TAXONOMY_VERSION,
+                "aspect_model": ASPECT_MODEL_ID,
                 "platform": "facebook",
                 "entity_name": doc.get("entity_name", ""),
                 "post_timestamp": doc.get("post_timestamp"),
@@ -799,17 +839,19 @@ def main() -> None:
             print(f"Loading aspect detection model...")
             aspect_tokenizer = AutoTokenizer.from_pretrained(aspect_source)
             aspect_model = AutoModelForSequenceClassification.from_pretrained(
-                aspect_source, torch_dtype=dtype,
+                aspect_source, dtype=dtype,
             ).to(device_str)
             aspect_model.eval()
+            _validate_model_contract(aspect_model)
 
             sentiment_source = _resolve_model_path(models_dir, SENTIMENT_MODEL_FOLDER, SENTIMENT_MODEL_ID)
             print(f"Loading sentiment model...")
             sentiment_tokenizer = AutoTokenizer.from_pretrained(sentiment_source)
             sentiment_model = AutoModelForSequenceClassification.from_pretrained(
-                sentiment_source, torch_dtype=dtype,
+                sentiment_source, dtype=dtype,
             ).to(device_str)
             sentiment_model.eval()
+            _validate_model_contract(aspect_model, sentiment_model)
 
             print()
             feedback_stats = run_feedbacks_pipeline(
@@ -826,9 +868,10 @@ def main() -> None:
                 print(f"Loading aspect detection model...")
                 aspect_tokenizer = AutoTokenizer.from_pretrained(aspect_source)
                 aspect_model = AutoModelForSequenceClassification.from_pretrained(
-                    aspect_source, torch_dtype=dtype,
+                    aspect_source, dtype=dtype,
                 ).to(device_str)
                 aspect_model.eval()
+                _validate_model_contract(aspect_model)
 
             print()
             contents_stats = run_contents_pipeline(

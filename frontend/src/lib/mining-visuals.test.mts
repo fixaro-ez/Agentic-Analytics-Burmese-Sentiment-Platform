@@ -10,7 +10,7 @@ import type { AssociationRule, EntityClusterMember } from "./types.ts"
 
 const rules: AssociationRule[] = [
   {
-    antecedent: ["customer_support"],
+    antecedent: ["staff_and_service"],
     consequent: ["fulfillment_and_speed"],
     support: 0.4,
     confidence: 0.8,

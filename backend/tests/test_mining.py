@@ -49,7 +49,7 @@ class MiningFilterTests(unittest.IsolatedAsyncioTestCase):
                     "entity_name": "Example",
                     "raw_text": "Late delivery and poor support",
                     "feedback_timestamp": "2026-07-31 10:00:00",
-                    "aspects": ["fulfillment_and_speed", "customer_support"],
+                    "aspects": ["fulfillment_and_speed", "staff_and_service"],
                 },
                 {
                     "feedback_id": "review-2",
@@ -81,7 +81,7 @@ class MiningFilterTests(unittest.IsolatedAsyncioTestCase):
         support_to_delivery = next(
             rule
             for rule in result["rules"]
-            if rule["antecedent"] == ["customer_support"]
+            if rule["antecedent"] == ["staff_and_service"]
         )
         self.assertEqual(support_to_delivery["confidence"], 1.0)
         self.assertEqual(support_to_delivery["cooccurrence_count"], 1)
@@ -100,7 +100,7 @@ class MiningFilterTests(unittest.IsolatedAsyncioTestCase):
                     "entity_name": "Example",
                     "raw_text": "Two aspects",
                     "feedback_timestamp": None,
-                    "aspects": ["price_and_value", "customer_support"],
+                    "aspects": ["price_and_value", "staff_and_service"],
                 },
                 {
                     "feedback_id": "review-2",

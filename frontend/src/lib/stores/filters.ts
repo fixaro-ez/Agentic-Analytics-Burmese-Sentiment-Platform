@@ -1,11 +1,10 @@
 import { create } from "zustand"
 
 const FILTER_ASPECTS = new Set([
-  "product_or_service_quality",
+  "product_quality",
   "fulfillment_and_speed",
   "price_and_value",
-  "digital_experience",
-  "customer_support",
+  "staff_and_service",
   "variety_and_availability",
 ])
 

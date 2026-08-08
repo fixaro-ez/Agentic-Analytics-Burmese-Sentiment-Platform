@@ -29,6 +29,12 @@ async def get_pool() -> asyncpg.Pool:
     return _pool
 
 
+async def warm_pool() -> None:
+    """Open the minimum connections before the first interactive request."""
+    pool = await get_pool()
+    await pool.fetchval("SELECT 1", timeout=5)
+
+
 def get_supabase() -> Client:
     global _supabase
     if _supabase is None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import time
 from unittest.mock import AsyncMock, patch
 
 from app.models.chat import ChatQuery, ChatResponse
@@ -42,6 +43,24 @@ class ReadOnlySQLTests(unittest.TestCase):
     def test_keywords_inside_string_literals_do_not_become_statements(self):
         sql = "SELECT 'drop table dim_entities' AS harmless"
         self.assertEqual(chat.validate_readonly_sql(sql), sql)
+
+    def test_branch_scope_rejects_unfiltered_generated_sql(self):
+        question = "what branch of kfc has the most positive reviews"
+        with self.assertRaises(chat.QueryScopeMismatch):
+            chat.validate_question_scope(
+                question,
+                "SELECT * FROM v_entity_sentiment_overview",
+            )
+
+    def test_branch_scope_accepts_brand_bridge_query(self):
+        chat.validate_question_scope(
+            "what branch of kfc has the most positive reviews",
+            "SELECT overview.* FROM v_entity_sentiment_overview overview "
+            "JOIN bridge_brand_foodpanda_shops bridge "
+            "ON bridge.entity_id = overview.entity_id "
+            "JOIN dim_brands brand ON brand.brand_id = bridge.brand_id "
+            "WHERE LOWER(brand.brand_name) = 'kfc'",
+        )
 
 
 class StreamingTests(unittest.IsolatedAsyncioTestCase):
@@ -127,8 +146,31 @@ class KeywordRouteTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertIn("positive_ratio", result[0])
 
+        result = chat._keyword_route(
+            "what branch of kfc has the most positive reviews", "en"
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("bridge_brand_foodpanda_shops", result[0])
+        self.assertIn("LOWER('kfc')", result[0])
+        self.assertIn("KFC branches", result[1])
+
+        result = chat._keyword_route("how many reviews are there", "en")
+        self.assertIsNotNone(result)
+        self.assertIn("COUNT(DISTINCT", result[0])
+
+        result = chat._keyword_route("compare entities", "en")
+        self.assertIsNotNone(result)
+        self.assertIn("v_entity_sentiment_overview", result[0])
+
+        result = chat._keyword_route("show Facebook engagement", "en")
+        self.assertIsNotNone(result)
+        self.assertIn("v_facebook_engagement", result[0])
+
+        result = chat._keyword_route("how do you know the db schema", "en")
+        self.assertIsNotNone(result)
+        self.assertIn("information_schema.columns", result[0])
+
     def test_returns_none_for_unmatched(self):
-        self.assertIsNone(chat._keyword_route("how many reviews are there", "en"))
         self.assertIsNone(chat._keyword_route("hello", "en"))
         self.assertIsNone(chat._keyword_route("show me raw reviews for KFC", "en"))
 
@@ -137,23 +179,64 @@ class KeywordRouteTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertNotEqual(result[1], "Here are the most frequently detected aspect and sentiment pairs.")
 
+    def test_provider_errors_are_safe_for_display(self):
+        error = RuntimeError(
+            "400 INVALID_ARGUMENT: Manually set deadline 6s is too short"
+        )
+        public = chat._public_llm_error(error)
+        self.assertIn("timed out", public)
+        self.assertNotIn("INVALID_ARGUMENT", public)
+
+    def test_branch_brand_filter_escapes_quotes(self):
+        result = chat._keyword_route(
+            "what branch of kfc' OR 1=1 -- has the most positive reviews", "en"
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("LOWER('kfc'' OR 1=1')", result[0])
+        chat.validate_readonly_sql(result[0])
+
 
 class QueryDataFallbackTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         chat._CONVERSATIONS.clear()
+        chat._QUERY_CACHE.clear()
+        chat._PLAN_CACHE.clear()
 
-    async def test_keyword_route_used_when_matched(self):
-        with patch.object(chat, "_execute_readonly", new=AsyncMock(return_value=[])):
+    async def test_llm_planner_used_even_when_template_matches(self):
+        planned = ("SELECT 1 AS planned", "generated", None)
+        with (
+            patch.object(chat, "_llm_query_plan", new=AsyncMock(return_value=planned)) as planner,
+            patch.object(chat, "_execute_readonly", new=AsyncMock(return_value=[])),
+        ):
             response = await chat.query_data("show aspect breakdown")
-        self.assertIn("v_aspect_breakdown", response.sql)
+        planner.assert_awaited_once()
+        self.assertEqual(response.sql, "SELECT 1 AS planned")
         self.assertIsNone(response.error)
 
     async def test_error_when_no_api_key_and_no_keyword_match(self):
-        with patch.object(chat.settings, "GOOGLE_API_KEY", ""):
-            response = await chat.query_data("how many total reviews exist")
+        with (
+            patch.object(chat.settings, "GOOGLE_API_KEY", ""),
+            patch.object(chat.settings, "CHAT_TEMPLATE_FALLBACK", False),
+        ):
+            response = await chat.query_data("how many brands are there")
         self.assertIsNone(response.sql)
         self.assertIsNotNone(response.error)
         self.assertIn("GOOGLE_API_KEY", response.error)
+
+    async def test_template_route_is_only_explicit_fallback(self):
+        with (
+            patch.object(chat.settings, "CHAT_TEMPLATE_FALLBACK", True),
+            patch.object(chat, "_llm_query_plan", new=AsyncMock(return_value=None)),
+            patch.object(chat, "_execute_readonly", new=AsyncMock(return_value=[])),
+        ):
+            response = await chat.query_data("how many brands are there")
+        self.assertIn("dim_brands", response.sql)
+
+    def test_text_to_sql_prompt_requires_brand_branch_scope(self):
+        prompt = chat._build_system_prompt()
+        self.assertIn("bridge_brand_foodpanda_shops", prompt)
+        self.assertIn("Do not rank unrelated entities", prompt)
+        self.assertIn("Never silently drop a requested filter", prompt)
 
     async def test_llm_fallback_returns_sql_on_success(self):
         fake_result = ("SELECT count(*) FROM dim_entities", "results", None)
@@ -162,10 +245,28 @@ class QueryDataFallbackTests(unittest.IsolatedAsyncioTestCase):
             patch.object(chat, "_llm_query_plan", new=AsyncMock(return_value=fake_result)),
             patch.object(chat, "_execute_readonly", new=AsyncMock(return_value=[{"count": 42}])),
         ):
-            response = await chat.query_data("count all entities in the database")
+            response = await chat.query_data("find the median review confidence")
         self.assertEqual(response.sql, "SELECT count(*) FROM dim_entities")
         self.assertEqual(response.results, [{"count": 42}])
         self.assertIsNone(response.error)
+
+    async def test_readonly_query_uses_fresh_cache_entry(self):
+        chat._QUERY_CACHE["SELECT 1 AS value"] = (
+            time.monotonic() + 10,
+            ({"value": 1},),
+        )
+        with patch.object(chat, "get_pool", new=AsyncMock()) as get_pool:
+            rows = await chat._execute_readonly("SELECT 1 AS value")
+        self.assertEqual(rows, [{"value": 1}])
+        get_pool.assert_not_awaited()
+
+    async def test_llm_plan_uses_fresh_cache_entry(self):
+        key = ("find the median review confidence", "en")
+        cached = ("SELECT 1", "cached result", None)
+        chat._PLAN_CACHE[key] = (time.monotonic() + 10, cached)
+        with patch.object(chat.settings, "GOOGLE_API_KEY", "fake-key"):
+            result = await chat._llm_query_plan(*key)
+        self.assertEqual(result, cached)
 
 
 if __name__ == "__main__":

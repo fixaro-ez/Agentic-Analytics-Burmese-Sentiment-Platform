@@ -10,11 +10,11 @@ test("URL filters clamp days and discard unknown aspects", () => {
   assert.deepEqual(highDays, { entityId: null, days: 365, aspect: null })
 
   const valid = filtersFromSearchParams(
-    new URLSearchParams("days=7&aspect=customer_support&entity=26")
+    new URLSearchParams("days=7&aspect=staff_and_service&entity=26")
   )
   assert.deepEqual(valid, {
     entityId: 26,
     days: 7,
-    aspect: "customer_support",
+    aspect: "staff_and_service",
   })
 })
